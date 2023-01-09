@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Webcam Video Stream</title>
+</head>
+<body>
+  <h1>Webcam Video Stream</h1>
+  <video id="video" autoplay></video>
+  <script>
+    var video = document.getElementById('video');
+    var src = URL.createObjectURL('/video_feed');
+    video.src = src;
+  </script>
+</body>
+</html>
