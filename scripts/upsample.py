@@ -59,15 +59,15 @@ class Upsample():
 
 if __name__ == '__main__':
     upsample = Upsample()
-    upsample.set_image('../test/michael-jackson-bad-low-res-58.jpg', 0.5)
+    upsample.set_image('../test/obama.png', 0.5)
 
     upsample.denoising()
-    upsample.save_image('../test/1_denoised.jpg')
+    upsample.save_image('../test/obama_1.jpg')
     upsample.sharpening_mask()
-    upsample.save_image('../test/1_sharpened.jpg')
+    upsample.save_image('../test/obama_sharpened.jpg')
 
     upsample.super_resolution_gan('espcn')
-    upsample.save_image('../test/1_upsampled.jpg')
+    upsample.save_image('../test/obama_upsampled.jpg')
 
     upsample.interpolation()
-    upsample.save_image('../test/1_1.jpg')
+    upsample.save_image('../test/obama_1.jpg')

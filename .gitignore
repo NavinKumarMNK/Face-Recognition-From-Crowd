@@ -1,7 +1,7 @@
-__pychace__
 data
 inference
 .ipynb_checkpoints
 Resources
 test
 weights/*
+__pycache__
