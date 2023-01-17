@@ -29,12 +29,10 @@ import asyncio
 import numpy as np
 from scripts.tracker import *
 from scripts.facenet import *
-sys.path.append("./utils")
-sys.path.append("./models")
-
+from utils import utils
 
 class Process():
-    def __init__(self, temp_dir, weigths, device) -> None:
+    def __init__(self, temp_dir, weigths, device = "cuda" if torch.cuda.is_available() else "cpu") -> None:
         self.temp_dir = temp_dir
         self.capture = None
         self.weights = weigths
@@ -42,21 +40,21 @@ class Process():
         self.sort_tracker = Sort(max_age=5, min_hits=2, iou_threshold=0.2)
 
     def set_capture(self, source):
-        self.source = source
-        if (source == "live"):
+        self.path = source
+        self.source = utils.path2src(source)
+        if (self.source == "live"):
             # set capture to web stream
             self.capture = cv2.VideoCapture(0)
-
             # set frame rate, height, width
-            self.capture.set(cv2.CAP_PROP_FPS, 24)
+            self.capture.set(cv2.CAP_PROP_FPS, 6)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
 
-        elif (source == 'photo'):
+        elif (self.source == 'image'):
             # no capture just inference on image
             self.capture = None
             pass
-        else:
+        else :
             # set capture on video files
             self.capture = cv2.VideoCapture(source)
         return self
@@ -93,6 +91,29 @@ class Process():
         else:
             dataset = LoadImages(self.source, img_size=imgsz, stride=stride)
 
+        if (self.source == "live"):
+            while True:
+                ret, frame = self.capture.read()
+                if not ret:
+                    break
+                else:
+                    # write on the frame and send it to the client
+                    cv2.putText(
+                        frame,
+                        "Press 'q' to quit",
+                        (20, 70),
+                        cv2.FONT_HERSHEY_PLAIN,
+                        2,
+                        (0, 255, 0),
+                        2,
+                    )
+                    ret, buffer = cv2.imencode('.jpg', frame)
+                    frame = buffer.tobytes()
+                    yield (b'--frame\r\n'
+                        b'Content-Type: image/jpeg\r\n'
+                        b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
+
+
         # Run inference
         if self.device != "cpu":
             model(torch.zeros(1, 3, imgsz, imgsz).to(self.device).type_as(
@@ -117,6 +138,8 @@ class Process():
                 pred, 0.25, 0.45, classes=None, agnostic=False)
             t2 = time_synchronized()
 
+            print(len(pred))
+
             # Process detections
             for i, det in enumerate(pred):  # detections per image
                 if self.source == "live":  # batch_size >= 1
@@ -135,6 +158,9 @@ class Process():
                     # Rescale boxes from img_size to im0 size
                     det[:, :4] = scale_coords(
                         img.shape[2:], det[:, :4], im0.shape).round()
+                    det[:, 6:16] = scale_coords_lmks(
+                        img.shape[2:], det[:, 6:16], im0.shape
+                    ).round()
 
                     # Print results
                     for c in det[:, -1].unique():
@@ -143,6 +169,11 @@ class Process():
                         s += f"{n} {'face'}{'s' * (n > 1)}, "
 
                     dets_to_sort = np.empty((0, 6))
+                    for x1, y1, x2, y2, conf, detclass in det.cpu().detach().numpy():
+                        dets_to_sort = np.vstack(
+                            (dets_to_sort, np.array(
+                                [x1, y1, x2, y2, conf, detclass]))
+                        )
 
                     tracked_dets = self.sort_tracker.update(
                         dets_to_sort, 'pink'
@@ -156,31 +187,6 @@ class Process():
                         categories = tracked_dets[:, 4]
                         confidences = None
 
-                        '''
-                        # loop over tracks
-                        for t, track in enumerate(tracks):
-
-                            track_color = (
-                                'pink'
-                            )
-
-                            [
-                                cv2.line(
-                                    im0,
-                                    (
-                                        int(track.centroidarr[i][0]),
-                                        int(track.centroidarr[i][1]),
-                                    ),
-                                    (
-                                        int(track.centroidarr[i + 1][0]),
-                                        int(track.centroidarr[i + 1][1]),
-                                    ),
-                                    track_color,
-                                )
-                                for i, _ in enumerate(track.centroidarr)
-                                if i < len(track.centroidarr) - 1
-                            ]
-                        '''
                         im0, faces = self.draw_boxes(
                             im0, bbox_xyxy, identities, categories, confidences, names, colors
                         )
@@ -208,7 +214,7 @@ class Process():
 
                 if view_img:
                     cv2.imshow(str(p), im0)
-                    cv2.waitKey(1)  # 1 milliseconds
+                    cv2.waitKey(1)
 
             # write faces
             self.tasks = 0
@@ -271,3 +277,9 @@ class Process():
             )
 
         return img, faces
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--source', type=str,)
+    args = parser.parse_args()
+    Process('./temp', './weights/yolov7-tinyface.pt',).set_capture(args.source).start_capture()

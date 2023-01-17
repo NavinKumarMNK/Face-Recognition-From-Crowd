@@ -6,3 +6,4 @@ test
 weights/*
 __pycache__
 temp
+*.pt
