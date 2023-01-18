@@ -15,7 +15,6 @@ app = Flask(__name__, template_folder='./templates')
 image_queue = mp.Queue()
 
 
-
 @app.route('/test/<path:path>')
 def send_image(path):
     return send_from_directory('images', path)

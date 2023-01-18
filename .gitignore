@@ -8,3 +8,5 @@ __pycache__
 temp
 *.pt
 /node_modules
+faces
+traced_model.pt

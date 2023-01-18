@@ -118,77 +118,59 @@ class Process():
                     # Rescale boxes from img_size to im0 size
                     det[:, :4] = scale_coords(
                         img.shape[2:], det[:, :4], im0.shape).round()
-                    det[:, 6:16] = scale_coords_lmks(
-                        img.shape[2:], det[:, 6:16], im0.shape
-                    ).round()
                     
-                for c in det[:, -1].unique():
-                        n = (det[:, -1] == c).sum()  # detections per class
-                        # add to string
-                        s += f"{n} {'face'}{'s' * (n > 1)}, "
+                    for c in det[:, -1].unique():
+                            n = (det[:, -1] == c).sum()  # detections per class
+                            # add to string
+                            s += f"{n} {'face'}{'s' * (n > 1)}, "
                 
-                dets_to_sort = np.empty((0, 6))
-                for x1, y1, x2, y2, conf, detclass in det.cpu().detach().numpy():
-                    dets_to_sort = np.vstack(
-                        (dets_to_sort, np.array(
-                            [x1, y1, x2, y2, conf, detclass]))
+                    dets_to_sort = np.empty((0, 6))
+                    for x1, y1, x2, y2, conf, detclass in det.cpu().detach().numpy():
+                        dets_to_sort = np.vstack(
+                            (dets_to_sort, np.array(
+                                [x1, y1, x2, y2, conf, detclass]))
+                        )
+
+                    tracked_dets = self.sort_tracker.update(
+                            dets_to_sort, 1
+                        )
+                    tracks = self.sort_tracker.getTrackers()
+
+                    if len(tracked_dets) > 0:
+                        bbox_xyxy = tracked_dets[:, :4]
+                        identities = tracked_dets[:, 8]
+                        categories = tracked_dets[:, 4]
+                        confidences = None
+
+                    else:
+                        bbox_xyxy = dets_to_sort[:, :4]
+                        identities = None
+                        categories = dets_to_sort[:, 5]
+                        confidences = dets_to_sort[:, 4]
+
+                    im0 = self.draw_boxes(
+                        im0, bbox_xyxy, identities=identities, categories=categories, 
+                            confidences=confidences, names="face", 
+                            color=1
                     )
-
-                tracked_dets = self.sort_tracker.update(
-                        dets_to_sort, 1
-                    )
-                tracks = self.sort_tracker.getTrackers()
-
-                if len(tracked_dets) > 0:
-                    bbox_xyxy = tracked_dets[:, :4]
-                    identities = tracked_dets[:, 8]
-                    categories = tracked_dets[:, 4]
-                    confidences = None
-
-                    for t, track in enumerate(tracks):
-                        track_color = 0
-                        [
-                            cv2.line(
-                                im0,
-                                (
-                                    int(track.centroidarr[i][0]),
-                                    int(track.centroidarr[i][1]),
-                                ),
-                                (
-                                    int(track.centroidarr[i + 1][0]),
-                                    int(track.centroidarr[i + 1][1]),
-                                ),
-                                track_color,
-                                thickness=1,
-                            )
-                            for i, _ in enumerate(track.centroidarr)
-                            if i < len(track.centroidarr) - 1
-                        ]
-            else:
-                bbox_xyxy = dets_to_sort[:, :4]
-                identities = None
-                categories = dets_to_sort[:, 5]
-                confidences = dets_to_sort[:, 4]
-
-            im0 = self.draw_boxes(
-                im0, bbox_xyxy, identities=identities, categories=categories, 
-                    confidences=confidences, names="face", 
-                    color=1
-            )
 
             print(
             f"{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference"
             )
 
-            frame = im0.tobytes()
-            yield frame
+            cv2.imshow("frame", im0)
+            cv2.waitKey(1)
+
+            im0 = im0.tobytes()
+            yield im0
 
 
     def _process_image(self):
         
         yield frame
     
-    def draw_boxes(self, img, bbox, identities=None, categories="Face Obtained", confidences=None, names=None, color=None):
+    def draw_boxes(self, img, bbox, identities=None, categories=0, confidences=None, names=None, color=None):
+        print(self.count)
         faces = []
         for i, box in enumerate(bbox):
             x1, y1, x2, y2 = [int(i) for i in box]
@@ -204,7 +186,7 @@ class Process():
             cv2.rectangle(img, (x1, y1), (x2, y2), color, tl)
 
             label = (
-                str(id) + ":" + categories
+                str(id) + ":" + "Face"
                 if identities is not None
                 else f"{categories} {confidences}"
             )
@@ -242,6 +224,7 @@ class Process():
         old_img_b = 1
     
     def start_capture(self):
+        self.count=0
         # capture faces
         if(self.source == 'live'):
             print('live')
