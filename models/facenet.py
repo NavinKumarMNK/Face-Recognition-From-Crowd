@@ -265,7 +265,7 @@ class ArcMarginModel(nn.Module):
     def __init__(self, args):
         super(ArcMarginModel, self).__init__()
 
-        self.weight = Parameter(torch.FloatTensor(num_classes, args.emb_size))
+        self.weight = Parameter(torch.FloatTensor(args.num_classes, args.emb_size))
         nn.init.xavier_uniform_(self.weight)
 
         self.easy_margin = args.easy_margin

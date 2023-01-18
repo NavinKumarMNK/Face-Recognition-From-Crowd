@@ -7,3 +7,4 @@ weights/*
 __pycache__
 temp
 *.pt
+/node_modules

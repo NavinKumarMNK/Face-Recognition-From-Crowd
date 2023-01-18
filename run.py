@@ -15,7 +15,7 @@ class Main():
         if self.args.source == "live": 
             subprocess.run(["python3", "app.py" ])
         else:
-            from scripts.process import Process
+            from process import Process
             Process(os.path.abspath('./temp'), os.path.abspath('./weights/yolo-tinyface.pt')).set_capture(self.args.path).start_capture()
 
     def initialize(self):
