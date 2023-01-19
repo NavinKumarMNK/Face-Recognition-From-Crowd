@@ -6,15 +6,9 @@ from utils.general import (
     apply_classifier,
     check_img_size,
     check_imshow,
-    check_requirements,
-    increment_path,
     non_max_suppression,
-    non_max_suppression_lmks,
     scale_coords,
-    scale_coords_lmks,
     set_logging,
-    strip_optimizer,
-    xyxy2xywh,
 )
 from PIL import Image
 from utils.datasets import LoadImages, LoadStreams
@@ -29,7 +23,6 @@ import argparse
 import asyncio
 import numpy as np
 from scripts.tracker import *
-from scripts.facenet import *
 from utils import utils
 
 
@@ -101,9 +94,12 @@ class Process():
             
             t1 = time_synchronized()
             pred = self.model(img, augment=1)[0]
+            print(pred)
             pred = non_max_suppression(pred, 0.25, 0.45, 
                         classes=None, agnostic=False)
+            
             t2 = time_synchronized()
+            print(pred)
 
             for i, det in enumerate(pred):
                 (p, s, im0, frame) = (path[i], "%g: " % i, 
