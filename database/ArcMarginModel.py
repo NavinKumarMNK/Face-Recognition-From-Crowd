@@ -5,63 +5,63 @@ import torch.nn.functional as F
 from torch.nn import Parameter
 import math
 
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from pytorch_lightning import LightningModule, Trainer
 
-class ArcMarginModel(pl.LightningModule):
+class ArcMarginModel(LightningModule):
     def __init__(self, args):
         super(ArcMarginModel, self).__init__()
+        self.embedding_size = args.embedding_size
+        self.num_classes = args.num_classes
+        self.margin = args.margin
+        self.embedding = nn.Linear(self.embedding_size, self.num_classes).double()
 
-        self.weight = Parameter(torch.DoubleTensor(args.num_classes, args.emb_size))
-        nn.init.xavier_uniform_(self.weight)
+    def forward(self, embeddings):
+        # pass the embeddings through the linear layer
+        embeddings
+        logits = self.embedding(embeddings)
+        return logits
 
-        self.easy_margin = args.easy_margin
-        self.m = args.margin_m
-        self.s = args.margin_s
+    def contrastive_loss(self, logits, labels):
+        # calculate the similarity between embeddings
+        similarity = torch.matmul(logits, logits.t())
+        diagonal = similarity.diag().view(-1, 1)
+        cost_s = torch.clamp(self.margin - diagonal + similarity, min=0)
+        cost_im = torch.clamp(diagonal + similarity - 2 * self.margin, min=0)
+        mask = torch.eye(similarity.size(0), device="cuda") > .5
+        I = torch.eye(similarity.size(0), device="cuda", dtype=torch.bool)
+        cost_s = cost_s.masked_fill_(mask, 0)
+        cost_im = cost_im.masked_fill_(I, 0)
+        cost_s = cost_s.max()
+        cost_im = cost_im.max()
+        cost_im = torch.mul(cost_im, labels)
+        cost = cost_s + cost_im
+        return cost
 
-        self.cos_m = math.cos(self.m)
-        self.sin_m = math.sin(self.m)
-        self.th = math.cos(math.pi - self.m)
-        self.mm = math.sin(math.pi - self.m) * self.m
-
-    def forward(self, input, label):
-        x = F.normalize(input).to("cuda")
-        W = F.normalize(self.weight).to("cuda")
-        label = label.to("cuda")
-        cosine = F.linear(x, W)
-        sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
-        phi = cosine * self.cos_m - sine * self.sin_m  # cos(theta + m)
-        if self.easy_margin:
-            phi = torch.where(cosine > 0, phi, cosine)
-        else:
-            phi = torch.where(cosine > self.th, phi, cosine - self.mm)
-        one_hot = torch.zeros(cosine.size()).to("cuda")
-        one_hot.scatter_(1, label.view(-1, 1).to("cuda"), 1)
-        output = (one_hot * phi) + ((1.0 - one_hot) * cosine)
-        output *= self.s
-        return output
-    
-    def forward(self, input):
-        x = F.normalize(input).to("cuda")
-        W = F.normalize(self.weight).to("cuda")
-        cosine = F.linear(x, W)
-        return cosine
-        
     def training_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat = self(x, y)
-        loss = F.cross_entropy(y_hat, y)
-        return loss
-    
+        embeddings, labels = batch
+        logits = self.forward(embeddings)
+        loss = self.contrastive_loss(logits, labels)
+        self.log("train_loss", loss)
+        return {"loss": loss}
+
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = optim.Adam(self.parameters(), lr=0.001)
         return optimizer
-    
-    def predict_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat = self(x, y)
-        return y_hat
-    
+
     def validation_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat = self(x, y)
-        return y_hat
-    
+        embeddings, labels = batch
+        logits = self.forward(embeddings)
+        loss = self.contrastive_loss(logits, labels)
+        self.log("val_loss", loss)
+        return {"val_loss": loss}
+
+    def prediction_step(self, batch):
+        embeddings = batch
+        logits = self.forward(embeddings)
+        predictions = logits.argmax(1)
+        return {"predictions": predictions}
+

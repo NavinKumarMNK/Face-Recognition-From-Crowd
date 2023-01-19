@@ -10,9 +10,8 @@ from sklearn.model_selection import train_test_split
 # number of folders in folder faces
 args = type("args", (object,), {})()
 args.num_classes = len(os.listdir("./faces"))
-args.margin_m = 0.2
-args.margin_s = 64
-args.emb_size = 512
+args.margin = 0.2
+args.embedding_size = 512
 args.easy_margin = False
 
 # pl datamodule read data from json
@@ -49,7 +48,6 @@ class FaceEmbeddingsDataModule(pl.LightningDataModule):
     def val_dataloader(self):
         val_dataset =  FaceEmbeddingsDataset(self.val_embeddings, self.val_labels)
         return DataLoader(val_dataset, batch_size=1, num_workers=4)
-
 
 
 model = ArcMarginModel(args)
