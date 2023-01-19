@@ -1,3 +1,4 @@
+'@Author: NavinKumarMNK'
 import sys, os
 sys.path.append(os.path.abspath('../'))
 from utils.torch_utils import TracedModel, load_classifier, select_device, time_synchronized
@@ -22,7 +23,7 @@ import time
 import argparse
 import asyncio
 import numpy as np
-from scripts.tracker import *
+from models.tracker import *
 from utils import utils
 
 

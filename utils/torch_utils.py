@@ -413,7 +413,7 @@ class TracedModel(nn.Module):
 
         traced_script_module = torch.jit.trace(self.model, rand_example, strict=False)
         # traced_script_module = torch.jit.script(self.model)
-        traced_script_module.save("traced_model.pt")
+        traced_script_module.save("./weights/traced_model.pt")
         print(" traced_script_module saved! ")
         self.model = traced_script_module
         self.model.to(device)
