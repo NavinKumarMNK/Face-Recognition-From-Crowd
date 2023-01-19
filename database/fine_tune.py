@@ -2,9 +2,11 @@ import pytorch_lightning as pl
 import sys
 import torch
 from ArcMarginModel import ArcMarginModel
+from torch.utils.data import DataLoader, random_split
 import os
 import pytorch_lightning as pl
-
+import pandas as pd
+from sklearn.model_selection import train_test_split
 # number of folders in folder faces
 args = type("args", (object,), {})()
 args.num_classes = len(os.listdir("./faces"))
@@ -15,30 +17,49 @@ args.easy_margin = False
 
 # pl datamodule read data from json
 
-class FacesDataModule(pl.LightningDataModule):
-    def __init__(self):
-        super().__init__()
-        self.path = "./embeddings.json"
-        self.batch_size = 32
-        self.num_workers = 4
-        
-    def setup(self, stage=None):
-        # read json file
-        import json
-        with open(self.path, "r") as f:
-            self.data = json.load(f)
-        self.data = self.data["embeddings"]
-        self.data = [(x["embedding"], x["label"]) for x in self.data]
+class FaceEmbeddingsDataset(torch.utils.data.Dataset):
+    def __init__(self, embeddings, labels):
+        self.embeddings = embeddings
+        self.labels = labels
 
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        return self.embeddings[idx], self.labels[idx]
+
+class FaceEmbeddingsDataModule(pl.LightningDataModule):
+    def __init__(self, file_path: str):
+        super().__init__()
+        self.file_path = file_path
+
+    def prepare_data(self):
+        df = pd.read_csv(self.file_path)
+        self.labels = df.iloc[:, 0].values
+        self.embeddings = df.iloc[:, 1:].values
+        # convert to numpy array
+        self.labels =   torch.Tensor(self.labels).long()
+        self.embeddings = torch.tensor(self.embeddings)
+        self.train_embeddings, self.val_embeddings, self.train_labels, self.val_labels = train_test_split(self.embeddings, self.labels, test_size=0.2, random_state=42)
+    
     def train_dataloader(self):
-        return torch.utils.data.DataLoader(self.data, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=True)
+        train_dataset =  FaceEmbeddingsDataset(self.train_embeddings, self.train_labels)
+        return DataLoader(train_dataset, batch_size=1, num_workers=4, shuffle=True)
 
     def val_dataloader(self):
-        return torch.utils.data.DataLoader(self.data, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=False)
+        val_dataset =  FaceEmbeddingsDataset(self.val_embeddings, self.val_labels)
+        return DataLoader(val_dataset, batch_size=1, num_workers=4)
+
+
 
 model = ArcMarginModel(args)
+data = FaceEmbeddingsDataModule("./embeddings.csv")
+data.prepare_data()
 pl.Trainer(
     gpus=1,
-    min_epochs=1,
-    max_epochs=10,
-).fit(model, FacesDataModule())
+    min_epochs=10,
+    max_epochs=25,
+).fit(model, data)
+
+# save model
+torch.save(model.state_dict(), "../weights/arc_margin.pt")

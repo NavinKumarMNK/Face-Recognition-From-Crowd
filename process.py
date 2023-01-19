@@ -47,14 +47,9 @@ class Process():
     
     def process_frame(self):
         set_logging()
-        print(self.device)
         if(self.device == "cuda"):
             self.device = select_device('0')
-            print(self.device)
         self.half = self.device.type != 'cpu'
-
-        print(utils.absolute_path(self.weights))
-
         self.model = attempt_load(self.weights, map_location=
                                 self.device)
         self.stride = int(self.model.stride.max())
@@ -75,8 +70,10 @@ class Process():
         
     def _process_live(self):
         self.source = '0'
+        
         cudnn.benchmark = True
         self.dataset = LoadStreams(self.source, img_size=640, stride=self.stride)
+                                
         
         if self.device != "cpu":
             self.model(torch.zeros(1, 3, self.imgsz, self.imgsz).to(self.device).type_as(
@@ -134,18 +131,20 @@ class Process():
                     tracked_dets = self.sort_tracker.update(
                             dets_to_sort, 1
                         )
-                    tracks = self.sort_tracker.getTrackers()
-
+                    temp_identities = []
                     if len(tracked_dets) > 0:
                         bbox_xyxy = tracked_dets[:, :4]
                         identities = tracked_dets[:, 8]
                         categories = tracked_dets[:, 4]
-                        confidences = None
-
-                    else:
-                        bbox_xyxy = dets_to_sort[:, :4]
-                        identities = None
-                        categories = dets_to_sort[:, 5]
+                        if (temp_identities != identities):
+                            #save image of face
+                            for i, box in enumerate(bbox_xyxy):
+                                x1, y1, x2, y2 = [int(box[0]), int(box[1]), int(box[2]), int(box[3])]
+                                face = im0[y1:y2, x1:x2]
+                                cv2.imwrite(os.path.join(self.temp_dir, f"{identities[i]}.jpg"), face)
+                            temp_identities = identities
+                        else:
+                            pass
                         confidences = dets_to_sort[:, 4]
 
                     im0 = self.draw_boxes(
@@ -154,23 +153,18 @@ class Process():
                             color=1
                     )
 
-            print(
+            '''print(
             f"{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference"
-            )
-
-            cv2.imshow("frame", im0)
-            cv2.waitKey(1)
+            )'''
 
             im0 = im0.tobytes()
             yield im0
 
 
     def _process_image(self):
-        
         yield frame
     
     def draw_boxes(self, img, bbox, identities=None, categories=0, confidences=None, names=None, color=None):
-        print(self.count)
         faces = []
         for i, box in enumerate(bbox):
             x1, y1, x2, y2 = [int(i) for i in box]
@@ -186,7 +180,7 @@ class Process():
             cv2.rectangle(img, (x1, y1), (x2, y2), color, tl)
 
             label = (
-                str(id) + ":" + "Face"
+                str(id) + ":" + "Face" + " - " + str(conf)
                 if identities is not None
                 else f"{categories} {confidences}"
             )
@@ -207,7 +201,6 @@ class Process():
                 thickness=tf,
                 lineType=cv2.LINE_AA,
             )
-            print(f"Bounding Box {i} is {x1}, {y1}, {x2}, {y2}")
         ret, buffer = cv2.imencode('.jpg', img)
         return buffer
 
@@ -227,7 +220,6 @@ class Process():
         self.count=0
         # capture faces
         if(self.source == 'live'):
-            print('live')
             for frame in self.process_frame():
                 yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n'

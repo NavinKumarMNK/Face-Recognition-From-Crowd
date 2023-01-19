@@ -11,6 +11,7 @@ import torchvision.transforms as transforms
 from torchvision.transforms import ToTensor, Normalize, Resize
 import numpy as np
 from PIL import Image
+import pandas as pd
 
 transform = transforms.Compose([
     Resize((64, 64)),
@@ -65,6 +66,21 @@ model.load_state_dict(torch.load(filename, map_location=torch.device('cuda')))
 model.fc = nn.Linear(8192, 512)
 model = nn.DataParallel(model)
 
+
+# add the label name and label id to the label_map.json file
+with open("label_map.json", "r") as f:
+    label_map = json.load(f)
+    label_id = len(label_map)
+    for folder in folders_created:
+        label = folder.split("/")[-1]
+        if label not in label_map:
+            label_map[label] = len(label_map)
+
+with open("label_map.json", "w") as f:
+    json.dump(label_map, f)
+
+
+embeddings = []
 for folder in folders_created:
     print("Adding {} to database".format(folder))
     images = os.listdir(folder)
@@ -73,17 +89,21 @@ for folder in folders_created:
         image = Image.open(image_path)
         image = transform(image).unsqueeze(0)
         print(image.shape)
-        with torch.no_grad():
-            embedding = model(image)
-            embedding = embedding.cpu().numpy()
-            embedding = embedding.reshape(512)
-            embedding = embedding.tolist()
-            #add in embedding.json username => embedding
-            with open("embeddings.json", "r") as f:
-                data = json.load(f)
-                data[folder.split("/")[-1]] = embedding
-            with open("embeddings.json", "w") as f:
-                json.dump(data, f)
+        model.eval()
+        embedding = model(image)
+        embedding = embedding.detach().cpu().numpy()
+        embedding = embedding.reshape(512)
+        embedding = embedding.tolist()
+        embeddings.append([label_id] + embedding)
+
+if os.path.exists("embeddings.csv"):
+    df = pd.read_csv("embeddings.csv")
+    df = df.concat([df, pd.DataFrame(embeddings, columns=df.columns)])
+    df.to_csv("embeddings.csv", index=False)
+else:
+    columns = ["label"] + ["embedding_"+str(i) for i in range(512)]
+    df = pd.DataFrame(embeddings, columns=columns)
+    df.to_csv("embeddings.csv", index=False)
+
+
     
-
-
