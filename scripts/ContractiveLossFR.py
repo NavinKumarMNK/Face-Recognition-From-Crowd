@@ -24,16 +24,18 @@ class ContractiveLossFR(LightningModule):
         super(ContractiveLossFR, self).__init__()
         self.embedding_size = int(embedding_size)
         self.num_classes = num_classes
-        print(type(self.embedding_size), type(self.num_classes))
         self.margin = float(margin)
         self.easy_margin = easy_margin
         self.embedding = nn.Linear(self.embedding_size, 
                                 self.num_classes).double()
+        
         try:
             if(pretrained == True):
-                self.load_state_dict(utils.ROOT_PATH + '/weights/contractive_loss_weights.pt')        
+                path = utils.ROOT_PATH + '/weights/contractive_loss_weights.pt'
+                self.load_state_dict(torch.load(path))        
         except Exception as e:
-            print("Pretrained weights not found")
+            print(path)
+            print(e)
             
     def forward(self, embeddings:torch.DoubleTensor):
         embeddings = embeddings.double()

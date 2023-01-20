@@ -178,7 +178,8 @@ class FaceNet(pl.LightningModule):
 
         try:
             if(pretrained == True):
-                self.load_state_dict(utils.ROOT_PATH + '/weights/facenet_weights.pt')        
+                path = utils.ROOT_PATH + '/weights/facenet_weights.pt'
+                self.load_state_dict(torch.load(path))        
         except Exception as e:
             print(e)
 

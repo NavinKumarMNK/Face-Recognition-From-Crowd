@@ -1,4 +1,7 @@
-# upsample.py
+'@Author: NavinKumarMNK'
+import sys, os
+if '../../' not in sys.path:
+    sys.path.append('../../')
 import cv2
 import numpy as np
 import joblib

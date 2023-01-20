@@ -1,4 +1,6 @@
 # Face Recognition System - Detect and Recognize Faces from the Crowd
+
+### Under Construction - 90% completed
 ## Overview
 
 This project is a face recognition system that uses YOLOv7 to detect and extract faces from a crowd, Facenet to extract features, and ArcMarginModel to recognize faces stored in the directory `./databases`. The system can be applied to photos, videos, and live-streams.

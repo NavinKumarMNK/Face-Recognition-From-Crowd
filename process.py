@@ -25,10 +25,17 @@ import asyncio
 import numpy as np
 from models.tracker import *
 from utils import utils
-
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+import time
+import uuid
+from scripts.FaceRecognition import FaceRecognition
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing as mp
 
 class Process():
-    def __init__(self, temp_dir, weigths, source, device = "cuda" if torch.cuda.is_available() else "cpu") -> None:
+    def __init__(self, temp_dir, weigths, source, 
+                    device = "cuda" if torch.cuda.is_available() else "cpu",
+                    recognize=True) -> None:
         self.temp_dir = temp_dir
         self.capture = None
         self.weights = weigths
@@ -38,11 +45,32 @@ class Process():
             self.weights = self.weights.replace('tinyface.pt', 'face.pt')
         self.device = device
         self.sort_tracker = Sort(max_age=5, min_hits=2, iou_threshold=0.2)
-    
-    def process_frame(self):
+        self.recognize = recognize
+        if self.recognize == False:
+            self.recognizer = FaceRecognition(recognizer='contractive')
+
+    def timer(func):
+        def wrapper(*args, **kwargs):
+            start = time.time()
+            result = func(*args, **kwargs)
+            end = time.time()
+            print(f'Elapsed time: {end - start}')
+            return result
+        return wrapper
+
+    def multiprocessing(func):
+        def wrapper(*args, **kwargs):
+            with ProcessPoolExecutor() as executor:
+                result = executor.submit(func, *args, **kwargs)
+                return result.result()
+        return wrapper
+
+    def yolov7(self):
+        print("hello")
         set_logging()
         if(self.device == "cuda"):
             self.device = select_device('0')
+        print(self.device)
         self.half = self.device.type != 'cpu'
         self.model = attempt_load(self.weights, map_location=
                                 self.device)
@@ -54,24 +82,44 @@ class Process():
             self.model.half()
         
         if (self.source == 'live'):
-            for frames in self._process_live(): 
-                yield frames    
-
-        elif (self.source == 'image'):
-            yield self._process_image(self.path)
+            self.source = '0'
+            cudnn.benchmark = True
+            self.dataset = LoadStreams(self.source, img_size=640, stride=self.stride)
+            self.temp_dir = os.path.join(self.temp_dir, 'live')
+            if not os.path.exists(self.temp_dir):
+                os.makedirs(self.temp_dir)
+            for frame in self.process():
+                yield frame
+        elif (self.source == 'video'):
+            self.dataset = LoadImages(self.path, img_size=640, stride=self.stride)
+            #create a folder with name of video and save inside it
+            temp_dir = self.source.split("/")[-1]
+            temp_dir = temp_dir.split(".")[0]
+            self.temp_dir = os.path.join(self.temp_dir, temp_dir)
+            if not os.path.exists(self.temp_dir):
+                os.makedirs(self.temp_dir)
+            fourcc = cv2.VideoWriter_fourcc(*'XVID')
+            self.out = cv2.VideoWriter(self.temp_dir+'output.avi', fourcc, 20.0, (640, 480))
+            self.process()
         else:
-            yield self._process_video()
-        
-    def _process_live(self):
-        self.source = '0'
-        
-        cudnn.benchmark = True
-        self.dataset = LoadStreams(self.source, img_size=640, stride=self.stride)
-                                
-        
+            self.dataset = LoadImages(self.path, img_size=640, stride=self.stride)
+            self.process()
+    
+        if (utils.path2src(self.path) == 'video' ):
+            self.out.release()
+            cv2.destroyAllWindows()
+           
+    @timer
+    @multiprocessing
+    def face_recognition(self, image):
+        return self.recognizer.predict(image)
+
+    @timer
+    def process(self):
         if self.device != "cpu":
             self.model(torch.zeros(1, 3, self.imgsz, self.imgsz).to(self.device).type_as(
-                next(self.model.parameters())))  # run once
+                next(self.model.parameters())))
+        
         old_img_w = old_img_h = self.imgsz
         old_img_b = 1
 
@@ -83,25 +131,19 @@ class Process():
                 img = img.unsqueeze(0)
         
             if self.device.type != "cpu" and (
-            old_img_b != img.shape[0]
-            or old_img_h != img.shape[2]
-            or old_img_w != img.shape[3]
-                ):
+                old_img_b != img.shape[0]
+                or old_img_h != img.shape[2]
+                or old_img_w != img.shape[3] ):
                 old_img_b = img.shape[0]
                 old_img_h = img.shape[2]
                 old_img_w = img.shape[3]
                 for i in range(3):
                     self.model(img, augment=1)[0]
             
-            t1 = time_synchronized()
             pred = self.model(img, augment=1)[0]
-            print(pred)
             pred = non_max_suppression(pred, 0.25, 0.45, 
                         classes=None, agnostic=False)
             
-            t2 = time_synchronized()
-            print(pred)
-
             for i, det in enumerate(pred):
                 (p, s, im0, frame) = (path[i], "%g: " % i, 
                                     im0s[i].copy(), self.dataset.count)
@@ -138,29 +180,42 @@ class Process():
                             for i, box in enumerate(bbox_xyxy):
                                 x1, y1, x2, y2 = [int(box[0]), int(box[1]), int(box[2]), int(box[3])]
                                 face = im0[y1:y2, x1:x2]
-                                cv2.imwrite(os.path.join(self.temp_dir, f"{identities[i]}.jpg"), face)
+                                if self.recognize == False:
+                                    name = self.face_recognition.predict(face)
+                                else:
+                                    name = "output"
+                                try:
+                                    uuid_text = str(uuid.uuid4())
+                                    cv2.imwrite(os.path.join(self.temp_dir, f"{name}_{uuid_text}.jpg"), face)
+                                except cv2.error as e:
+                                    pass
                             temp_identities = identities
                         else:
                             pass
                         confidences = dets_to_sort[:, 4]
-
+                    print(identities)
                     im0 = self.draw_boxes(
                         im0, bbox_xyxy, identities=identities, categories=categories, 
                             confidences=confidences, names="face", 
                             color=1
                     )
 
-            '''print(
-            f"{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference"
-            )'''
-
-            im0 = im0.tobytes()
-            yield im0
-
-
-    def _process_image(self):
-        yield frame
+            print("hello")
+            if (self.source == '0'):
+                print("one")
+                im0 = im0.tobytes()
+                yield im0
+            elif utils.path2src(self.source) == "image":
+                print("two")
+                #save it in temp folder
+                cv2.imwrite(self.path, im0)
+            elif utils.path2src(self.source) == "video":
+                print("three")
+                self.out.write(im0)
+                
     
+
+            
     def draw_boxes(self, img, bbox, identities=None, categories=0, confidences=None, names=None, color=None):
         faces = []
         for i, box in enumerate(bbox):
@@ -200,35 +255,17 @@ class Process():
             )
         ret, buffer = cv2.imencode('.jpg', img)
         return buffer
-
-
-    def _process_video(self):
-        self.source = self.path
-        view_img = check_imshow()
-        self.dataset = LoadImages(self.source, img_size=640, stride=self.stride)
-
-        if self.device != "cpu":
-            self.model(torch.zeros(1, 3, self.imgsz, self.imgsz).to(self.device).type_as(
-                next(self.model.parameters())))  # run once
-        old_img_w = old_img_h = self.imgsz
-        old_img_b = 1
     
     def start_capture(self):
-        self.count=0
         # capture faces
         if(self.source == 'live'):
-            for frame in self.process_frame():
+            for frame in self.yolov7():
                 yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n'
                 b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
-                #yield frame
-        elif(self.source == 'image'):
-            print('live3')
-            self.process_frame()
         else:
-            print('live2')
-            self.process_frame()
-
+            self.yolov7()
+        
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--source', type=str,)

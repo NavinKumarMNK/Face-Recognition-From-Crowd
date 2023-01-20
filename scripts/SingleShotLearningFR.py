@@ -18,7 +18,7 @@ from torchvision import transforms
 from PIL import Image
 from sklearn.model_selection import train_test_split
 from pytorch_lightning import LightningModule
-from FaceNet import FaceNet
+from scripts.FaceNet import FaceNet
 from PIL import Image
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -29,7 +29,8 @@ class SingleShotLearningFR(LightningModule):
         self.embedding_size = embedding_size
         try:
             if(pretrained == True):
-                self.load_state_dict(utils.ROOT_PATH + '/weights/ssl_facenet_weights.pt')        
+                path = utils.ROOT_PATH + '/weights/ssl_facenet_weights.pt'
+                self.load_state_dict(torch.load(path))        
         except Exception as e:
             print("Pretrained weights not found")
                         
@@ -64,7 +65,6 @@ class SingleShotLearningFR(LightningModule):
 
     def on_train_end(self) -> None:
         torch.save(self.state_dict(), utils.ROOT_PATH + '/weights/ssl_facenet_weights.pt')
-
 
 class TripletFaceDataset(Dataset):
     def __init__(self, root_dir, label_map, transform=None):
@@ -109,7 +109,7 @@ class SSLFacentDataModule(pl.LightningDataModule):
         ])
         self.train_dataset = TripletFaceDataset(self.root_dir, self.label_map, transform_train)
         transform_val = transforms.Compose([
-            transforms.Resize(256),
+            transforms.Resize(64, 64),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])

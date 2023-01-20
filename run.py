@@ -1,3 +1,4 @@
+'Author: NavinKumarMNK'
 import argparse
 import subprocess
 import sys
@@ -16,7 +17,8 @@ class Main():
             subprocess.run(["python3", "app.py" ])
         else:
             from process import Process
-            Process(os.path.abspath('./temp'), os.path.abspath('./weights/yolo-tinyface.pt')).set_capture(self.args.path).start_capture()
+            Process('./temp', './weights/yolov7-tinyface.pt', self.args.path).start_capture()
+        
 
     def initialize(self):
         sys.stdout.write("Initializing...\n")
