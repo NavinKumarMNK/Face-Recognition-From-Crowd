@@ -35,18 +35,20 @@ class Predictor():
         self.model = self.model.to(DEVICE)
 
     def upsampler(self , image, file=False):
-        self.upsample.set_image(image, 0.5, file)
-        self.upsample.denoising()
-        self.upsample.sharpening_mask()
-        self.upsample.super_resolution_gan('espcn')        
-        self.upsample.interpolation()
-        image = self.upsample.get_image()
-        return image
-    
+        try:
+            self.upsample.set_image(image, 0.5, file)
+            self.upsample.denoising()
+            self.upsample.sharpening_mask()
+            self.upsample.super_resolution_gan('espcn')        
+            self.upsample.interpolation()
+            image = self.upsample.get_image()
+            return image
+        except Exception as e:
+            print(e)
+            return image
+
     def predict(self, image):
-        #if self.file == False:
-        #    print(image.shape)
-        #    image = np.unsqueeze(image, axis=0)
+    
         image = self.upsampler(image, file=self.file)
         image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
         image = transforms.ToTensor()(image)

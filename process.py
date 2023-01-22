@@ -41,8 +41,6 @@ class Process():
         self.weights = weigths
         self.path = source
         self.source = utils.path2src(source)
-        if(self.source == 'image'):
-            self.weights = self.weights.replace('tinyface.pt', 'face.pt')
         self.device = device
         self.sort_tracker = Sort(max_age=5, min_hits=2, iou_threshold=0.2)
         self.recognize = recognize
@@ -118,8 +116,10 @@ class Process():
             img /= 255.0
             if img.ndimension() == 3:
                 img = img.unsqueeze(0)
+            
             if self.source == 'image':
                 img = img.float()
+            
             if self.device.type != "cpu" and (
                 old_img_b != img.shape[0]
                 or old_img_h != img.shape[2]
@@ -169,28 +169,36 @@ class Process():
                         confidences = dets_to_sort[:, 4]
                         if (temp_identities is not identities):
                             for i, box in enumerate(bbox_xyxy):
-                                x1, y1, x2, y2 = [int(box[0]), int(box[1]), int(box[2]), int(box[3])]
-                                #print(x1, x2, y1,  y2)
+                                try:
+                                    x1, y1, x2, y2 = [int(box[0]), int(box[1]), int(box[2]), int(box[3])]
+                                except ValueError:
+                                    continue
                                 face = im0[y1:y2, x1:x2]
                                 faces_img.append(face)
                                 if self.recognize == True:
                                     print("hello")
                                     name = self.face_recognition(face)
+                                    if(name == None):
+                                        continue
                                 else:
                                     name = "output"
                                 try:
                                     faces_name.append(name)
                                     uuid_text = str(uuid.uuid4())
+                                    
                                     cv2.imwrite(os.path.join(self.temp_dir, f"{name}_{uuid_text}.jpg"), face)
                                 except cv2.error as e:
                                     print(e)
                             temp_identities = identities
+                        
                     if (faces_name == []):
                         faces_name = None
                     print("identites", identities)
                     print("faces", faces_name)
                     try:
-                        print(bbox_xyxy)
+                        if(self.source == '0'):
+                            im0 = im0.squeeze(0)
+                        print(im0.shape)
                         im0 = self.draw_boxes(
                             im0, bbox_xyxy, identities=identities, categories=categories, 
                                 confidences=confidences, 
@@ -199,14 +207,18 @@ class Process():
                     except Exception as e:
                         print(e)
 
-            print(self.source)
-            if (self.source == 0):
+            print("source", self.source)
+            if (self.source == '0'):
                 ret, buffer = cv2.imencode('.jpg', im0)
                 im0 = buffer.tobytes()
                 yield im0
             elif(self.source == 'image'):
                 yield im0
-           
+            elif self.source == 'video':
+                cv2.imshow("face", im0)
+                cv2.waitKey(1) 
+                yield im0
+
     def draw_boxes(self, img, bbox, identities=None, categories=0, 
                     confidences=None, names=None, color=None, faces=None):
         for i, box in enumerate(bbox):
@@ -223,12 +235,12 @@ class Process():
             cv2.rectangle(img, (x1, y1), (x2, y2), color, tl)
             #print(faces)
             label = (
-                str(id) + " " + face + " " + str(conf) 
-                if identities is not None and faces is not None 
+                str(id) + " " + face 
+                if identities is not None 
                 else "No object"
             )
             # font thickness
-            tf = max(tl - 1, 1)
+            tf = 1
             t_size = cv2.getTextSize(
                 label, 0, fontScale=tl / 3, thickness=tf)[0]
             c2 = x1 + t_size[0], y1 - t_size[1] - 3
@@ -242,9 +254,8 @@ class Process():
                 tl / 3,
                 [225, 255, 255],
                 thickness=tf,
-                lineType=cv2.LINE_AA,
+                lineType=cv2.LINE_AA
             )
-        
         return img
     
     def start_capture(self):
@@ -253,7 +264,7 @@ class Process():
             if(self.source == 'live'):
                 yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n'
-                b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
+                b'Content-Length: ' + str(len(frame)) + b'\r\n\r\n' + frame + b'\r\n')
             elif (self.source == "video"):
                 yield frame
             elif (self.source == "image"):
