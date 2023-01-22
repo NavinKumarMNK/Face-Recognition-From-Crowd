@@ -4,15 +4,20 @@ if '../../' not in sys.path:
     sys.path.append('../../')
 import cv2
 import numpy as np
-import joblib
-
+from utils import utils
 
 class Upsample():
-    def set_image(self, img, scale):
-        self.img = cv2.imread(img)
+    def set_image(self, img, scale, file=True):
+        print(img)
+        if file: self.img = cv2.imread(img)
+        else : self.img = img
+        print(self.img)
         self.og_size = self.img.shape
         self.upsampled_size = (
             int(self.og_size[1] * scale), int(self.og_size[0] * scale))
+
+    def get_image(self):
+        return self.img
 
     def interpolation(self, method='bicubic'):
         if method == 'nearest':
@@ -31,7 +36,7 @@ class Upsample():
     def super_resolution_gan(self, method):
         sr = cv2.dnn_superres.DnnSuperResImpl_create()
         if method == 'espcn':
-            path = '../weights/ESPCN_x2.pb'
+            path = utils.ROOT_PATH +'/weights/ESPCN_x2.pb'
         else:
             raise Exception('Invalid method')
         sr.readModel(path)

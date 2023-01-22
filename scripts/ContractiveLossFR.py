@@ -1,7 +1,7 @@
 '@Author: NavinKumarMNK' 
 import sys 
-if '../../' not in sys.path:
-    sys.path.append('../../')
+if '../' not in sys.path:
+    sys.path.append('../')
     
 from utils import utils
 import os
@@ -27,7 +27,7 @@ class ContractiveLossFR(LightningModule):
         self.margin = float(margin)
         self.easy_margin = easy_margin
         self.embedding = nn.Linear(self.embedding_size, 
-                                self.num_classes).double()
+                                self.num_classes).double().to("cuda")
         
         try:
             if(pretrained == True):
@@ -39,13 +39,13 @@ class ContractiveLossFR(LightningModule):
             
     def forward(self, embeddings:torch.DoubleTensor):
         embeddings = embeddings.double()
-        logits = self.embedding(embeddings)
+        logits = self.embedding(embeddings.to("cuda"))
         return logits
 
     def contrastive_loss(self, logits, labels):
         # calculate the similarity between embeddings
         similarity = torch.norm(logits, dim=1, p=2)
-        diagonal = similarity.diag().view(-1, 1)
+        diagonal = similarity.diag()
         cost_s = torch.clamp(self.margin - diagonal + similarity, min=0)
         mask = torch.eye(similarity.size(0), device=DEVICE) > .5
         I = torch.eye(similarity.size(0), device=DEVICE, dtype=torch.bool)
@@ -111,11 +111,11 @@ class ContractiveLossFREmbeddingsDataModule(pl.LightningDataModule):
         self.train_embeddings, self.val_embeddings, self.train_labels, self.val_labels = train_test_split(self.embeddings, self.labels, test_size=0.2, random_state=42)
     
     def train_dataloader(self):
-        train_dataset =  ContractiveLossFREmbeddingsDataset(self.train_embeddings, self.train_labels)
+        train_dataset = ContractiveLossFREmbeddingsDataset(self.train_embeddings, self.train_labels)
         return DataLoader(train_dataset, batch_size=self.batch_size, num_workers=4, shuffle=True)
 
     def val_dataloader(self):
-        val_dataset =  ContractiveLossFREmbeddingsDataset(self.val_embeddings, self.val_labels)
+        val_dataset = ContractiveLossFREmbeddingsDataset(self.val_embeddings, self.val_labels)
         return DataLoader(val_dataset, batch_size=self.batch_size, num_workers=4) 
     
 if __name__ == "__main__":
@@ -125,7 +125,7 @@ if __name__ == "__main__":
     data = ContractiveLossFREmbeddingsDataModule(utils.ROOT_PATH + '/database/embeddings.csv', batch_size=1)
     data.prepare_data()
     trainer = pl.Trainer(
-    gpus=1,
+    accelerator='gpu', devices=1,
     min_epochs=10,
     max_epochs=25,
     )

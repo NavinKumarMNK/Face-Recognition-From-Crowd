@@ -273,4 +273,4 @@ if __name__ == "__main__":
     print(ligtning_model)
     '''
 
-    #pl.Trainer(gpus=1, max_epochs=10).fit(model)
+    #pl.Trainer(accelerator='gpu', devices=1, max_epochs=10).fit(model)

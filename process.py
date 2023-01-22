@@ -28,7 +28,7 @@ from utils import utils
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 import time
 import uuid
-from scripts.FaceRecognition import FaceRecognition
+from scripts.FaceRecognition import Predictor
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 
@@ -46,8 +46,8 @@ class Process():
         self.device = device
         self.sort_tracker = Sort(max_age=5, min_hits=2, iou_threshold=0.2)
         self.recognize = recognize
-        if self.recognize == False:
-            self.recognizer = FaceRecognition(recognizer='contractive')
+        if self.recognize == True:
+            self.recognizer = Predictor(file=False, label=True)
 
     def timer(func):
         def wrapper(*args, **kwargs):
@@ -58,29 +58,21 @@ class Process():
             return result
         return wrapper
 
-    def multiprocessing(func):
-        def wrapper(*args, **kwargs):
-            with ProcessPoolExecutor() as executor:
-                result = executor.submit(func, *args, **kwargs)
-                return result.result()
-        return wrapper
-
     def yolov7(self):
         print("hello")
         set_logging()
         if(self.device == "cuda"):
             self.device = select_device('0')
-        print(self.device)
         self.half = self.device.type != 'cpu'
         self.model = attempt_load(self.weights, map_location=
                                 self.device)
         self.stride = int(self.model.stride.max())
         self.imgsz = check_img_size(640, s=self.stride)
 
-        self.model = TracedModel(self.model, self.device, 640)
-        if self.half:
-            self.model.half()
-        
+        #self.model = TracedModel(self.model, self.device, 640)
+        #if self.half:
+        #    self.model.half()
+        print(self.source)
         if (self.source == 'live'):
             self.source = '0'
             cudnn.benchmark = True
@@ -88,9 +80,9 @@ class Process():
             self.temp_dir = os.path.join(self.temp_dir, 'live')
             if not os.path.exists(self.temp_dir):
                 os.makedirs(self.temp_dir)
-            for frame in self.process():
-                yield frame
+            
         elif (self.source == 'video'):
+            print("Path of video", self.path)
             self.dataset = LoadImages(self.path, img_size=640, stride=self.stride)
             #create a folder with name of video and save inside it
             temp_dir = self.source.split("/")[-1]
@@ -98,23 +90,15 @@ class Process():
             self.temp_dir = os.path.join(self.temp_dir, temp_dir)
             if not os.path.exists(self.temp_dir):
                 os.makedirs(self.temp_dir)
-            fourcc = cv2.VideoWriter_fourcc(*'XVID')
-            self.out = cv2.VideoWriter(self.temp_dir+'output.avi', fourcc, 20.0, (640, 480))
-            self.process()
         else:
             self.dataset = LoadImages(self.path, img_size=640, stride=self.stride)
-            self.process()
-    
-        if (utils.path2src(self.path) == 'video' ):
-            self.out.release()
-            cv2.destroyAllWindows()
+
+        for frame in self.process():
+            yield frame
            
-    @timer
-    @multiprocessing
     def face_recognition(self, image):
         return self.recognizer.predict(image)
 
-    @timer
     def process(self):
         if self.device != "cpu":
             self.model(torch.zeros(1, 3, self.imgsz, self.imgsz).to(self.device).type_as(
@@ -124,42 +108,47 @@ class Process():
         old_img_b = 1
 
         for path, img, im0s, vid_cap in self.dataset:
+            img = np.array(img)
+            im0s = np.array(im0s)
             img = torch.from_numpy(img).to(self.device)
             img = img.half() if self.half else img.float()
             img /= 255.0
             if img.ndimension() == 3:
+                print(img.shape)
                 img = img.unsqueeze(0)
-        
+                print(img.shape)
+
             if self.device.type != "cpu" and (
                 old_img_b != img.shape[0]
                 or old_img_h != img.shape[2]
-                or old_img_w != img.shape[3] ):
+                or old_img_w != img.shape[3] 
+                ):
                 old_img_b = img.shape[0]
                 old_img_h = img.shape[2]
                 old_img_w = img.shape[3]
                 for i in range(3):
                     self.model(img, augment=1)[0]
             
+            t1 = time_synchronized()
             pred = self.model(img, augment=1)[0]
+            print(pred)
+            t2 = time_synchronized()
             pred = non_max_suppression(pred, 0.25, 0.45, 
                         classes=None, agnostic=False)
-            
+            t3 = time_synchronized()
+            print(pred)
             for i, det in enumerate(pred):
-                (p, s, im0, frame) = (path[i], "%g: " % i, 
-                                    im0s[i].copy(), self.dataset.count)
+                if self.source == 'live':
+                    p, s, im0, frame = path[i], "%g: " % i, im0s[i].copy(), self.dataset.count
+                else:
+                    p, s, im0, frame = path, "", im0s, getattr(self.dataset, "frame", 0 )
 
                 gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]
-                          
+                
                 if len(det):
-                    # Rescale boxes from img_size to im0 size
                     det[:, :4] = scale_coords(
                         img.shape[2:], det[:, :4], im0.shape).round()
-                    
-                    for c in det[:, -1].unique():
-                            n = (det[:, -1] == c).sum()  # detections per class
-                            # add to string
-                            s += f"{n} {'face'}{'s' * (n > 1)}, "
-                
+
                     dets_to_sort = np.empty((0, 6))
                     for x1, y1, x2, y2, conf, detclass in det.cpu().detach().numpy():
                         dets_to_sort = np.vstack(
@@ -171,70 +160,76 @@ class Process():
                             dets_to_sort, 1
                         )
                     temp_identities = []
+                    faces = []
                     if len(tracked_dets) > 0:
                         bbox_xyxy = tracked_dets[:, :4]
                         identities = tracked_dets[:, 8]
                         categories = tracked_dets[:, 4]
+                        confidences = dets_to_sort[:, 4]
                         if (temp_identities != identities):
-                            #save image of face
+                            print("hello")
                             for i, box in enumerate(bbox_xyxy):
-                                x1, y1, x2, y2 = [int(box[0]), int(box[1]), int(box[2]), int(box[3])]
+                                # change nan in bbox to 0
+                                try:
+                                    x1, y1, x2, y2 = [int(box[0]), int(box[1]), int(box[2]), int(box[3])]
+                                    print(x1, x2, y1,  y2)
+                                except Exception as e:
+                                    print(e)
+                                    continue
                                 face = im0[y1:y2, x1:x2]
-                                if self.recognize == False:
-                                    name = self.face_recognition.predict(face)
+                                if self.recognize == True:
+                                    print("hello")
+                                    name = self.face_recognition(face)
+                                    exit(0)
                                 else:
                                     name = "output"
                                 try:
+                                    faces.append(name)
                                     uuid_text = str(uuid.uuid4())
                                     cv2.imwrite(os.path.join(self.temp_dir, f"{name}_{uuid_text}.jpg"), face)
                                 except cv2.error as e:
-                                    pass
+                                    print(e)
                             temp_identities = identities
-                        else:
-                            pass
-                        confidences = dets_to_sort[:, 4]
+                    if (faces == []):
+                        faces = None
                     print(identities)
-                    im0 = self.draw_boxes(
-                        im0, bbox_xyxy, identities=identities, categories=categories, 
-                            confidences=confidences, names="face", 
-                            color=1
-                    )
+                    print(faces)
+                    try:
+                        print(bbox_xyxy)
+                        im0 = self.draw_boxes(
+                            im0, bbox_xyxy, identities=identities, categories=categories, 
+                                confidences=confidences, 
+                                color=5 , faces=faces 
+                        )
+                    except Exception as e:
+                        print(e)
 
-            print("hello")
-            if (self.source == '0'):
-                print("one")
+            if (self.source == "live"):
                 im0 = im0.tobytes()
                 yield im0
-            elif utils.path2src(self.source) == "image":
-                print("two")
-                #save it in temp folder
-                cv2.imwrite(self.path, im0)
-            elif utils.path2src(self.source) == "video":
-                print("three")
-                self.out.write(im0)
-                
-    
+            else:
+                yield im0
+           
+    def draw_boxes(self, img, bbox, identities=None, categories=0, 
+                    confidences=None, names=None, color=None, faces=None):
 
-            
-    def draw_boxes(self, img, bbox, identities=None, categories=0, confidences=None, names=None, color=None):
-        faces = []
         for i, box in enumerate(bbox):
             x1, y1, x2, y2 = [int(i) for i in box]
             face = img[y1:y2, x1:x2]
-            faces.append(face)
             # line thickness
             tl = (round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1)
 
             id = int(identities[i]) if identities is not None else 0
+            face = str(faces[i]) if faces is not None else "output"
             conf = confidences
 
             color = 1
             cv2.rectangle(img, (x1, y1), (x2, y2), color, tl)
-
+            #print(faces)
             label = (
-                str(id) + ":" + "Face" + " - " + str(conf)
-                if identities is not None
-                else f"{categories} {confidences}"
+                str(id) + " " + face + " " + str(conf) 
+                if identities is not None and faces is not None 
+                else "No object"
             )
             # font thickness
             tf = max(tl - 1, 1)
@@ -258,13 +253,15 @@ class Process():
     
     def start_capture(self):
         # capture faces
-        if(self.source == 'live'):
-            for frame in self.yolov7():
+        for frame in self.yolov7():
+            if(self.source == 'live'):
                 yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n'
                 b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
-        else:
-            self.yolov7()
+            elif (self.source == "video"):
+                yield frame
+            elif (self.source == "image"):
+                yield frame
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -272,3 +269,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
     for frame in Process('./temp', './weights/yolov7-tinyface.pt', args.source).start_capture():
         print(frame)
+    

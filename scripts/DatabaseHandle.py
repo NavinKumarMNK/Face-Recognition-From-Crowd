@@ -21,8 +21,6 @@ import uuid
 from utils import utils
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
-
 class DatabaseHandler():
     def __init__(self, database=utils.ROOT_PATH+'/database', weights='/weights/face_embeddings.pt') -> None:
         self.database = database
