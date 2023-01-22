@@ -2,7 +2,7 @@
 import sys 
 if '../' not in sys.path:
     sys.path.append('../')
-    
+import numpy as np
 from utils import utils
 import os
 import torch
@@ -33,9 +33,8 @@ class Predictor():
         args['num_classes'] = len(os.listdir(utils.ROOT_PATH + '/database/faces')) 
         self.embedding = ContractiveLossFR(**args, pretrained=True) 
         self.model = self.model.to(DEVICE)
-    
+
     def upsampler(self , image, file=False):
-        print(file)
         self.upsample.set_image(image, 0.5, file)
         self.upsample.denoising()
         self.upsample.sharpening_mask()
@@ -45,6 +44,9 @@ class Predictor():
         return image
     
     def predict(self, image):
+        #if self.file == False:
+        #    print(image.shape)
+        #    image = np.unsqueeze(image, axis=0)
         image = self.upsampler(image, file=self.file)
         image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
         image = transforms.ToTensor()(image)
@@ -57,7 +59,6 @@ class Predictor():
         embedding = self.model(image)
         prediction = self.embedding(embedding)
         prediction = torch.argmax(prediction, dim=1)
-        print(prediction)
         
         if self.label:
             return self.ret_label(prediction)
@@ -65,7 +66,7 @@ class Predictor():
             return prediction
     
     def ret_label(self, prediction):
-        with open('../database/label_map.json') as f:
+        with open(utils.ROOT_PATH+ '/database/label_map.json') as f:
             data = json.load(f)
         for key, value in data.items():
             if value == prediction.item():
@@ -109,11 +110,14 @@ class Trainer():
 
 
 if __name__ == '__main__':
-    #face_recognizer = Predictor(file=True, label=True)
-    #prediction = face_recognizer.predict('../database/faces/obama/obama_upsampled.jpg',)
-    #print(prediction)
+    face_recognizer = Predictor(file=True, label=True)
+    prediction = face_recognizer.predict('../test/navin.jpg')
+    print(prediction)
+
+    '''
     face_trainer = Trainer(root_dir=utils.ROOT_PATH+ "/database/faces",
                         label_map=utils.ROOT_PATH+'/database/label_map.json',
                         embeddings=utils.ROOT_PATH+'/database/embeddings.csv',
                         batch_size=2)
     face_trainer.train()
+    '''

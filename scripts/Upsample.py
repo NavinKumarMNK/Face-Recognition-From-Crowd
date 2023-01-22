@@ -8,10 +8,8 @@ from utils import utils
 
 class Upsample():
     def set_image(self, img, scale, file=True):
-        print(img)
         if file: self.img = cv2.imread(img)
         else : self.img = img
-        print(self.img)
         self.og_size = self.img.shape
         self.upsampled_size = (
             int(self.og_size[1] * scale), int(self.og_size[0] * scale))
@@ -44,6 +42,7 @@ class Upsample():
         self.img = sr.upsample(self.img)
 
     def denoising(self):
+        print(self.img.shape)
         self.image = cv2.fastNlMeansDenoisingColored(
             self.img, None, 10, 10, 7, 21)
 

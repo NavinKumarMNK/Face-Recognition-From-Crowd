@@ -69,20 +69,23 @@ class Process():
         self.stride = int(self.model.stride.max())
         self.imgsz = check_img_size(640, s=self.stride)
 
-        #self.model = TracedModel(self.model, self.device, 640)
-        #if self.half:
-        #    self.model.half()
-        print(self.source)
         if (self.source == 'live'):
+            self.model = TracedModel(self.model, self.device, 640)
+            if self.half:
+                self.model.half()
+        
             self.source = '0'
             cudnn.benchmark = True
             self.dataset = LoadStreams(self.source, img_size=640, stride=self.stride)
             self.temp_dir = os.path.join(self.temp_dir, 'live')
             if not os.path.exists(self.temp_dir):
                 os.makedirs(self.temp_dir)
-            
+
         elif (self.source == 'video'):
-            print("Path of video", self.path)
+            self.model = TracedModel(self.model, self.device, 640)
+            if self.half:
+                self.model.half()
+        
             self.dataset = LoadImages(self.path, img_size=640, stride=self.stride)
             #create a folder with name of video and save inside it
             temp_dir = self.source.split("/")[-1]
@@ -114,10 +117,9 @@ class Process():
             img = img.half() if self.half else img.float()
             img /= 255.0
             if img.ndimension() == 3:
-                print(img.shape)
                 img = img.unsqueeze(0)
-                print(img.shape)
-
+            if self.source == 'image':
+                img = img.float()
             if self.device.type != "cpu" and (
                 old_img_b != img.shape[0]
                 or old_img_h != img.shape[2]
@@ -129,14 +131,11 @@ class Process():
                 for i in range(3):
                     self.model(img, augment=1)[0]
             
-            t1 = time_synchronized()
             pred = self.model(img, augment=1)[0]
-            print(pred)
-            t2 = time_synchronized()
+
             pred = non_max_suppression(pred, 0.25, 0.45, 
                         classes=None, agnostic=False)
-            t3 = time_synchronized()
-            print(pred)
+
             for i, det in enumerate(pred):
                 if self.source == 'live':
                     p, s, im0, frame = path[i], "%g: " % i, im0s[i].copy(), self.dataset.count
@@ -144,7 +143,6 @@ class Process():
                     p, s, im0, frame = path, "", im0s, getattr(self.dataset, "frame", 0 )
 
                 gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]
-                
                 if len(det):
                     det[:, :4] = scale_coords(
                         img.shape[2:], det[:, :4], im0.shape).round()
@@ -160,59 +158,57 @@ class Process():
                             dets_to_sort, 1
                         )
                     temp_identities = []
-                    faces = []
+                    
+                    faces_name = []
+                    faces_img = []
+
                     if len(tracked_dets) > 0:
                         bbox_xyxy = tracked_dets[:, :4]
                         identities = tracked_dets[:, 8]
                         categories = tracked_dets[:, 4]
                         confidences = dets_to_sort[:, 4]
-                        if (temp_identities != identities):
-                            print("hello")
+                        if (temp_identities is not identities):
                             for i, box in enumerate(bbox_xyxy):
-                                # change nan in bbox to 0
-                                try:
-                                    x1, y1, x2, y2 = [int(box[0]), int(box[1]), int(box[2]), int(box[3])]
-                                    print(x1, x2, y1,  y2)
-                                except Exception as e:
-                                    print(e)
-                                    continue
+                                x1, y1, x2, y2 = [int(box[0]), int(box[1]), int(box[2]), int(box[3])]
+                                #print(x1, x2, y1,  y2)
                                 face = im0[y1:y2, x1:x2]
+                                faces_img.append(face)
                                 if self.recognize == True:
                                     print("hello")
                                     name = self.face_recognition(face)
-                                    exit(0)
                                 else:
                                     name = "output"
                                 try:
-                                    faces.append(name)
+                                    faces_name.append(name)
                                     uuid_text = str(uuid.uuid4())
                                     cv2.imwrite(os.path.join(self.temp_dir, f"{name}_{uuid_text}.jpg"), face)
                                 except cv2.error as e:
                                     print(e)
                             temp_identities = identities
-                    if (faces == []):
-                        faces = None
-                    print(identities)
-                    print(faces)
+                    if (faces_name == []):
+                        faces_name = None
+                    print("identites", identities)
+                    print("faces", faces_name)
                     try:
                         print(bbox_xyxy)
                         im0 = self.draw_boxes(
                             im0, bbox_xyxy, identities=identities, categories=categories, 
                                 confidences=confidences, 
-                                color=5 , faces=faces 
+                                color=5 , faces=faces_name
                         )
                     except Exception as e:
                         print(e)
 
-            if (self.source == "live"):
-                im0 = im0.tobytes()
+            print(self.source)
+            if (self.source == 0):
+                ret, buffer = cv2.imencode('.jpg', im0)
+                im0 = buffer.tobytes()
                 yield im0
-            else:
+            elif(self.source == 'image'):
                 yield im0
            
     def draw_boxes(self, img, bbox, identities=None, categories=0, 
                     confidences=None, names=None, color=None, faces=None):
-
         for i, box in enumerate(bbox):
             x1, y1, x2, y2 = [int(i) for i in box]
             face = img[y1:y2, x1:x2]
@@ -248,8 +244,8 @@ class Process():
                 thickness=tf,
                 lineType=cv2.LINE_AA,
             )
-        ret, buffer = cv2.imencode('.jpg', img)
-        return buffer
+        
+        return img
     
     def start_capture(self):
         # capture faces
