@@ -1,12 +1,10 @@
 '@Author: NavinKumarMNK'
 import sys, os
 sys.path.append(os.path.abspath('../'))
-from utils.torch_utils import TracedModel, load_classifier, select_device, time_synchronized
+from utils.torch_utils import TracedModel, select_device, time_synchronized
 from utils.plots import plot_one_box
 from utils.general import (
-    apply_classifier,
     check_img_size,
-    check_imshow,
     non_max_suppression,
     scale_coords,
     set_logging,
@@ -23,13 +21,12 @@ import time
 import argparse
 import asyncio
 import numpy as np
-from models.tracker import *
+from scripts.Trackers.KalmanTracker import *
 from utils import utils
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 import time
 import uuid
 from scripts.FaceRecognition import Predictor
-from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 
 class Process():
@@ -100,6 +97,7 @@ class Process():
     def face_recognition(self, image):
         return self.recognizer.predict(image)
 
+    @timer
     def process(self):
         if self.device != "cpu":
             self.model(torch.zeros(1, 3, self.imgsz, self.imgsz).to(self.device).type_as(
@@ -131,13 +129,15 @@ class Process():
                 for i in range(3):
                     self.model(img, augment=1)[0]
             
+            t1 = time_synchronized()
             pred = self.model(img, augment=1)[0]
-
+            t2 = time_synchronized()
             pred = non_max_suppression(pred, 0.25, 0.45, 
                         classes=None, agnostic=False)
+            t3 = time_synchronized()
 
             for i, det in enumerate(pred):
-                if self.source == 'live':
+                if self.source == 'live' or self.source == '0':
                     p, s, im0, frame = path[i], "%g: " % i, im0s[i].copy(), self.dataset.count
                 else:
                     p, s, im0, frame = path, "", im0s, getattr(self.dataset, "frame", 0 )
@@ -177,8 +177,11 @@ class Process():
                                 faces_img.append(face)
                                 if self.recognize == True:
                                     print("hello")
-                                    name = self.face_recognition(face)
-                                    if(name == None):
+                                    try:
+                                        t4 = time_synchronized()
+                                        name = self.face_recognition(face)
+                                        t5 = time_synchronized()
+                                    except Exception as e:
                                         continue
                                 else:
                                     name = "output"
@@ -195,17 +198,14 @@ class Process():
                         faces_name = None
                     print("identites", identities)
                     print("faces", faces_name)
-                    try:
-                        if(self.source == '0'):
-                            im0 = im0.squeeze(0)
-                        print(im0.shape)
-                        im0 = self.draw_boxes(
-                            im0, bbox_xyxy, identities=identities, categories=categories, 
-                                confidences=confidences, 
-                                color=5 , faces=faces_name
-                        )
-                    except Exception as e:
-                        print(e)
+
+                    print(im0.shape)
+                    im0 = self.draw_boxes(
+                        im0, bbox_xyxy, identities=identities,  
+                            
+                            color=5 , faces=faces_name
+                    )
+    
 
             print("source", self.source)
             if (self.source == '0'):
@@ -219,8 +219,8 @@ class Process():
                 cv2.waitKey(1) 
                 yield im0
 
-    def draw_boxes(self, img, bbox, identities=None, categories=0, 
-                    confidences=None, names=None, color=None, faces=None):
+    def draw_boxes(self, img, bbox, identities=None, 
+                     color=None, faces=None):
         for i, box in enumerate(bbox):
             x1, y1, x2, y2 = [int(i) for i in box]
             face = img[y1:y2, x1:x2]
@@ -228,8 +228,11 @@ class Process():
             tl = (round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1)
 
             id = int(identities[i]) if identities is not None else 0
-            face = str(faces[i]) if faces is not None else "output"
-            conf = confidences
+            try:
+                face = str(faces[i]) if faces is not None else "output"
+            except Exception as e:
+                face = ' '
+                print(e)
 
             color = 1
             cv2.rectangle(img, (x1, y1), (x2, y2), color, tl)
@@ -261,10 +264,9 @@ class Process():
     def start_capture(self):
         # capture faces
         for frame in self.yolov7():
-            if(self.source == 'live'):
+            if(self.source == 'live' or self.source == '0'):
                 yield (b'--frame\r\n'
-                b'Content-Type: image/jpeg\r\n'
-                b'Content-Length: ' + str(len(frame)) + b'\r\n\r\n' + frame + b'\r\n')
+                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
             elif (self.source == "video"):
                 yield frame
             elif (self.source == "image"):

@@ -128,7 +128,6 @@ class SSLFacentDataModule(pl.LightningDataModule):
         ])
         self.image_paths = []
         self.labels = []
-
         
     def prepare_data(self, stage=None):
         with open(self.label_map) as f:

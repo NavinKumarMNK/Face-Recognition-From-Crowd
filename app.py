@@ -1,3 +1,4 @@
+'@Author: NavinKumarMNK'
 import cv2
 from flask import Flask, render_template, Response, send_from_directory
 import webbrowser
@@ -48,6 +49,7 @@ def image_capture(queue):
         observer.stop()
     observer.join()
 
+#app route to add the image in database
 
 
 @app.route('/video-feed')

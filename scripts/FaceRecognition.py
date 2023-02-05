@@ -48,7 +48,6 @@ class Predictor():
             return image
 
     def predict(self, image):
-    
         image = self.upsampler(image, file=self.file)
         image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
         image = transforms.ToTensor()(image)

@@ -9,8 +9,6 @@ import os
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import cv2
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 import json
 import torchvision.transforms as transforms
 from torchvision.transforms import ToTensor, Normalize, Resize
@@ -61,8 +59,6 @@ class DatabaseHandler():
 
         observer.stop()
         observer.join()
-
-        # crop the faces on each image and save it to the folder
 
         self._face2database()
 

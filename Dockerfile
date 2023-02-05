@@ -4,17 +4,22 @@ FROM nvcr.io/nvidia/pytorch:20.03-py3
 # Set the working directory
 WORKDIR /app
 
-# Copy the requirements file to the container
 COPY requirements.txt .
 
-# Install the required packages
+RUN mkdir ./weights
+RUN mkdir ./temp
+
+WORKDIR /app/weights
+RUN wget "https://drive.google.com/uc?export=download&id=FILE_ID" -O weights.zip
+RUN unzip weights.zip
+RUN rm weights.zip
+
+WORKDIR /app
+
 RUN pip install -r requirements.txt
 
-# Copy the rest of the application files to the container
 COPY . .
 
-# Expose the port for the flask API
 EXPOSE 5005
 
-# Start the application
-CMD ["python", "run.py" "-live"]
+CMD ["python", "run.py" "--source", "live"]
