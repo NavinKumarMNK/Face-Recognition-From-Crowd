@@ -1,25 +1,26 @@
-# Use NVIDIA's PyTorch container as the base image
-FROM nvcr.io/nvidia/pytorch:20.03-py3
+FROM nvcr.io/nvidia/pytorch:22.11-py3
 
-# Set the working directory
 WORKDIR /app
 
-COPY requirements.txt .
+RUN apt-get update
+
+RUN apt-get install -y zlib1g-dev libjpeg-dev build-essential libssl-dev libffi-dev
+
+RUN python3 -m pip install --upgrade pip
+
+COPY . .
+RUN pip install -r requirements.txt
 
 RUN mkdir ./weights
 RUN mkdir ./temp
 
 WORKDIR /app/weights
-RUN wget "https://drive.google.com/uc?export=download&id=FILE_ID" -O weights.zip
+RUN gdown 'https://drive.google.com/u/0/uc?id=1qcgXiaAgdvSmvU3St9cJsguK6067KcjM&export=download' -O weights.zip
 RUN unzip weights.zip
 RUN rm weights.zip
 
-WORKDIR /app
-
-RUN pip install -r requirements.txt
-
-COPY . .
-
 EXPOSE 5005
 
-CMD ["python", "run.py" "--source", "live"]
+WORKDIR /app
+
+CMD python3 run.py --source live

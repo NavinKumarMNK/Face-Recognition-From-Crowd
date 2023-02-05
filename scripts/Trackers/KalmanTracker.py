@@ -1,17 +1,9 @@
 from __future__ import print_function
 from filterpy.kalman import KalmanFilter
-import argparse
-import time
-import glob
 from random import randint
 from skimage import io
-import matplotlib.patches as patches
-import matplotlib.pyplot as plt
-
-import os
 import numpy as np
-import matplotlib
-matplotlib.use('TkAgg')
+
 
 
 def get_color():

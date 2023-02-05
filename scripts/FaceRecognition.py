@@ -12,10 +12,10 @@ import torch
 import torch.nn as nn
 from torchvision import transforms
 from PIL import Image
-from scripts.ContractiveLossFR import ContractiveLossFR, ContractiveLossFREmbeddingsDataModule
+from scripts.FRMethods.ContractiveLossFR import ContractiveLossFR, ContractiveLossFREmbeddingsDataModule
 from scripts.Upsample import Upsample
-from scripts.SingleShotLearningFR import SSLFacentDataModule, SingleShotLearningFR
-from scripts.ContractiveLossFR import ContractiveLossFR
+from scripts.FRMethods.SingleShotLearningFR import SSLFacentDataModule, SingleShotLearningFR
+from scripts.FRMethods.ContractiveLossFR import ContractiveLossFR
 from PIL import Image
 import cv2
 import json
