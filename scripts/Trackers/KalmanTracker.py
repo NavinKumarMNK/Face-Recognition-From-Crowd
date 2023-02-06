@@ -4,12 +4,7 @@ from random import randint
 from skimage import io
 import numpy as np
 
-
-
 def get_color():
-    # r = randint(0, 255)
-    # g = randint(0, 255)
-    # b = randint(0, 255)
     color = (randint(0, 255), randint(0, 255), randint(0, 255))
     return color
 
@@ -23,10 +18,6 @@ def linear_assignment(cost_matrix):
         from scipy.optimize import linear_sum_assignment
         x, y = linear_sum_assignment(cost_matrix)
         return np.array(list(zip(x, y)))
-
-
-"""From SORT: Computes IOU between two boxes in the form [x1,y1,x2,y2]"""
-
 
 def iou_batch(bb_test, bb_gt):
 
@@ -44,10 +35,6 @@ def iou_batch(bb_test, bb_gt):
               + (bb_gt[..., 2] - bb_gt[..., 0]) * (bb_gt[..., 3] - bb_gt[..., 1]) - wh)
     return (o)
 
-
-"""Takes a bounding box in the form [x1,y1,x2,y2] and returns z in the form [x,y,s,r] where x,y is the center of the box and s is the scale/area and r is the aspect ratio"""
-
-
 def convert_bbox_to_z(bbox):
     w = bbox[2] - bbox[0]
     h = bbox[3] - bbox[1]
@@ -58,11 +45,6 @@ def convert_bbox_to_z(bbox):
     r = w / float(h)
     return np.array([x, y, s, r]).reshape((4, 1))
 
-
-"""Takes a bounding box in the centre form [x,y,s,r] and returns it in the form
-    [x1,y1,x2,y2] where x1,y1 is the top left and x2,y2 is the bottom right"""
-
-
 def convert_x_to_bbox(x, score=None):
     w = np.sqrt(x[2] * x[3])
     h = x[2] / w
@@ -71,20 +53,12 @@ def convert_x_to_bbox(x, score=None):
     else:
         return np.array([x[0]-w/2., x[1]-h/2., x[0]+w/2., x[1]+h/2., score]).reshape((1, 5))
 
-
-"""This class represents the internal state of individual tracked objects observed as bbox."""
-
-
 class KalmanBoxTracker(object):
 
     count = 0
 
     def __init__(self, bbox):
-        """
-        Initialize a tracker using initial bounding box
 
-        Parameter 'bbox' must have 'detected class' int number at the -1 position.
-        """
         self.kf = KalmanFilter(dim_x=7, dim_z=4)
         self.kf.F = np.array([[1, 0, 0, 0, 1, 0, 0], [0, 1, 0, 0, 0, 1, 0], [0, 0, 1, 0, 0, 0, 1], [
                              0, 0, 0, 1, 0, 0, 0], [0, 0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 0, 1]])
@@ -111,14 +85,9 @@ class KalmanBoxTracker(object):
         CX = (bbox[0]+bbox[2])//2
         CY = (bbox[1]+bbox[3])//2
         self.centroidarr.append((CX, CY))
-
-        # keep yolov5 detected class information
         self.detclass = bbox[5]
 
     def update(self, bbox):
-        """
-        Updates the state vector with observed bbox
-        """
         self.time_since_update = 0
         self.history = []
         self.hits += 1
@@ -130,9 +99,6 @@ class KalmanBoxTracker(object):
         self.centroidarr.append((CX, CY))
 
     def predict(self):
-        """
-        Advances the state vector and returns the predicted bounding box estimate
-        """
         if ((self.kf.x[6]+self.kf.x[2]) <= 0):
             self.kf.x[6] *= 0.0
         self.kf.predict()
@@ -141,22 +107,9 @@ class KalmanBoxTracker(object):
             self.hit_streak = 0
         self.time_since_update += 1
         self.history.append(convert_x_to_bbox(self.kf.x))
-        # bbox=self.history[-1]
-        # CX = (bbox[0]+bbox[2])/2
-        # CY = (bbox[1]+bbox[3])/2
-        # self.centroidarr.append((CX,CY))
-
         return self.history[-1]
 
     def get_state(self):
-        """
-        Returns the current bounding box estimate
-        # test
-        arr1 = np.array([[1,2,3,4]])
-        arr2 = np.array([0])
-        arr3 = np.expand_dims(arr2, 0)
-        np.concatenate((arr1,arr3), axis=1)
-        """
         arr_detclass = np.expand_dims(np.array([self.detclass]), 0)
 
         arr_u_dot = np.expand_dims(self.kf.x[4], 0)
@@ -167,13 +120,6 @@ class KalmanBoxTracker(object):
 
 
 def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3):
-    """
-    Assigns detections to tracked object (both represented as bounding boxes)
-    Returns 3 lists of 
-    1. matches,
-    2. unmatched_detections
-    3. unmatched_trackers
-    """
     if (len(trackers) == 0):
         return np.empty((0, 2), dtype=int), np.arange(len(detections)), np.empty((0, 5), dtype=int)
 
@@ -214,7 +160,6 @@ def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3):
 
     return matches, np.array(unmatched_detections), np.array(unmatched_trackers)
 
-
 class Sort(object):
     def __init__(self, max_age=1, min_hits=3, iou_threshold=0.3):
         self.max_age = max_age
@@ -228,16 +173,6 @@ class Sort(object):
         return self.trackers
 
     def update(self, dets=np.empty((0, 6)), unique_color=False):
-        """
-        Parameters:
-        'dets' - a numpy array of detection in the format [[x1, y1, x2, y2, score], [x1,y1,x2,y2,score],...]
-
-        Ensure to call this method even frame has no detections. (pass np.empty((0,5)))
-
-        Returns a similar array, where the last column is object ID (replacing confidence score)
-
-        NOTE: The number of objects returned may differ from the number of objects provided.
-        """
         self.frame_count += 1
 
         # Get predicted locations from existing trackers

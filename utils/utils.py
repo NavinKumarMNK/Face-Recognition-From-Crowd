@@ -37,3 +37,18 @@ def config_parse(txt):
         print(path)    
     
     return params
+
+def lists_equal(list1, list2):
+    if len(list1) != len(list2):
+        return False
+    for i in range(len(list1)):
+        if list1[i] != list2[i]:
+            return False
+    return True
+
+def get_new_faces(list1, list2):
+    new_faces = []
+    for i in range(len(list1)):
+        if list1[i] not in list2:
+            new_faces.append(int(list1[i]))
+    return new_faces

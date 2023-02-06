@@ -28,6 +28,17 @@ import time
 import uuid
 from scripts.FaceRecognition import Predictor
 import multiprocessing as mp
+mp.set_start_method('spawn', force=True)
+
+def face_recognition(input_queue, output_queue):
+        recognizer = Predictor(file=False, label=True)
+        while True:
+            if input_queue.empty():
+                continue
+            else:
+                image = input_queue.get()
+                name = recognizer.predict(image)
+                output_queue.put(name)
 
 class Process():
     def __init__(self, temp_dir, weigths, source, 
@@ -42,7 +53,11 @@ class Process():
         self.sort_tracker = Sort(max_age=5, min_hits=2, iou_threshold=0.2)
         self.recognize = recognize
         if self.recognize == True:
-            self.recognizer = Predictor(file=False, label=True)
+            self.output_queue = mp.Queue()
+            self.input_queue = mp.Queue()
+            self.recognizer = mp.Process(target=face_recognition, args=(self.input_queue, self.output_queue))
+            self.recognizer.start()
+
 
     def timer(func):
         def wrapper(*args, **kwargs):
@@ -54,7 +69,6 @@ class Process():
         return wrapper
 
     def yolov7(self):
-        print("hello")
         set_logging()
         if(self.device == "cuda"):
             self.device = select_device('0')
@@ -94,8 +108,6 @@ class Process():
         for frame in self.process():
             yield frame
            
-    def face_recognition(self, image):
-        return self.recognizer.predict(image)
 
     @timer
     def process(self):
@@ -105,8 +117,10 @@ class Process():
         
         old_img_w = old_img_h = self.imgsz
         old_img_b = 1
-
-        for path, img, im0s, vid_cap in self.dataset:
+        temp_identities = [-1]
+        faces_name = []
+        faces_img = []
+        for path, img, im0s, vid_cap in self.dataset:    
             img = np.array(img)
             im0s = np.array(im0s)
             img = torch.from_numpy(img).to(self.device)
@@ -157,18 +171,27 @@ class Process():
                     tracked_dets = self.sort_tracker.update(
                             dets_to_sort, 1
                         )
-                    temp_identities = []
-                    
-                    faces_name = []
-                    faces_img = []
 
                     if len(tracked_dets) > 0:
+                        widths = tracked_dets[:, 2] - tracked_dets[:, 0]
+                        heights = tracked_dets[:, 3] - tracked_dets[:, 1]
+                        mask = np.logical_and(widths >= 32, heights >= 32)
+                        tracked_dets = tracked_dets[mask]
+
                         bbox_xyxy = tracked_dets[:, :4]
                         identities = tracked_dets[:, 8]
                         categories = tracked_dets[:, 4]
                         confidences = dets_to_sort[:, 4]
-                        if (temp_identities is not identities):
-                            for i, box in enumerate(bbox_xyxy):
+                        print(temp_identities)
+                        print(identities)
+                        if (utils.lists_equal(temp_identities, identities) != True):
+                            print("hello")
+                            new_faces = utils.get_new_faces(identities, temp_identities)
+                            print(new_faces)
+                            faces_name = []
+                            faces_img = []
+                            iter_bbox = [bbox_xyxy[np.where(identities == x)[0][0]] for x in new_faces if x in identities]
+                            for box in iter_bbox:
                                 try:
                                     x1, y1, x2, y2 = [int(box[0]), int(box[1]), int(box[2]), int(box[3])]
                                 except ValueError:
@@ -176,13 +199,9 @@ class Process():
                                 face = im0[y1:y2, x1:x2]
                                 faces_img.append(face)
                                 if self.recognize == True:
-                                    print("hello")
-                                    try:
-                                        t4 = time_synchronized()
-                                        name = self.face_recognition(face)
-                                        t5 = time_synchronized()
-                                    except Exception as e:
-                                        continue
+                                    print("asdfsdf")
+                                    self.input_queue.put(face)
+                                    name = self.output_queue.get()
                                 else:
                                     name = "output"
                                 try:
@@ -193,21 +212,17 @@ class Process():
                                 except cv2.error as e:
                                     print(e)
                             temp_identities = identities
-                        
+                        print(temp_identities)
+
                     if (faces_name == []):
                         faces_name = None
-                    print("identites", identities)
-                    print("faces", faces_name)
 
-                    print(im0.shape)
                     im0 = self.draw_boxes(
                         im0, bbox_xyxy, identities=identities,  
                             
                             color=5 , faces=faces_name
                     )
-    
 
-            print("source", self.source)
             if (self.source == '0'):
                 ret, buffer = cv2.imencode('.jpg', im0)
                 im0 = buffer.tobytes()
@@ -236,7 +251,6 @@ class Process():
 
             color = 1
             cv2.rectangle(img, (x1, y1), (x2, y2), color, tl)
-            #print(faces)
             label = (
                 str(id) + " " + face 
                 if identities is not None 
@@ -271,6 +285,8 @@ class Process():
                 yield frame
             elif (self.source == "image"):
                 yield frame
+        self.recognizer.kill()
+        
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
