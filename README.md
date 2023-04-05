@@ -60,7 +60,9 @@ Where `<image_name>` is the name of the image you want to build and `<path_to_pr
     Note: Run docker as super user to avoid libnividai.so.1 not found error.
     --device /dev/video0 => for live stream
 
-## Tensor RT support
-To run the model using Tensor RT, use the following command:
+## Building
+> To run the model using Tensor RT, use the following command:
+> Multiple Camera channel, with centralized server
+> Decoupling Camera and Server
+> Distributed Inference
 
-    Building 

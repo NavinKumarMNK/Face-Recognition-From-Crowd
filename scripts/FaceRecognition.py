@@ -1,15 +1,13 @@
 '@Author: NavinKumarMNK'
-import sys 
-if '../' not in sys.path:
-    sys.path.append('../')
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 import numpy as np
 from utils import utils
 import os
-import torch
 import pytorch_lightning as pl
 import torch.nn.functional as F
 import torch
-import torch.nn as nn
 from torchvision import transforms
 from PIL import Image
 from scripts.FRMethods.ContractiveLossFR import ContractiveLossFR, ContractiveLossFREmbeddingsDataModule
@@ -21,6 +19,7 @@ import cv2
 import json
 from scripts.Upsample import Upsample
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from scripts.DatabaseHandle import DatabaseHandler
 
 class Predictor():
     def __init__(self, file=False,
@@ -49,7 +48,10 @@ class Predictor():
 
     def predict(self, image):
         image = self.upsampler(image, file=self.file)
-        image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        try:
+            image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        except:
+            return 0
         image = transforms.ToTensor()(image)
         image = transforms.Resize((64, 64))(image)
         image = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(image)
@@ -57,6 +59,7 @@ class Predictor():
         image = image.to(DEVICE)
         
         self.model.eval()
+        self.embedding.eval()
         embedding = self.model(image)
         prediction = self.embedding(embedding)
         prediction = torch.argmax(prediction, dim=1)
@@ -75,50 +78,55 @@ class Predictor():
  
 class Trainer():
     def __init__(self, root_dir, label_map, embeddings, 
-                        batch_size=1, pretrained=True):
+                        pretrained=True):
         self.root_dir = root_dir
         self.label_map = label_map
         self.pretrained = pretrained
         self.embeddings = embeddings
-        self.batch_size = batch_size
+        
 
     def train(self):
-        self.ssl_trainer()
+        #self.ssl_trainer()
         self.ctl_trainer()
 
     def ssl_trainer(self):
         model = SingleShotLearningFR(pretrained=True)
         data = SSLFacentDataModule(root_dir=self.root_dir,
                                 label_map=self.label_map,
-                                batch_size=self.batch_size)
-        trainer = pl.Trainer(accelerator='gpu', devices=1, max_epochs=10)
-        trainer.fit(model, data)
-        trainer.save_checkpoint(utils.ROOT_PATH + '/weights/ssl_facenet.ckpt')
+                                batch_size=16)
+        data.setup()
+        self.batch_size = len(data.train_dataloader()) 
+        trainer = pl.Trainer(accelerator='gpu', devices=1, 
+                            min_epochs=5,
+                            max_epochs=10,)
+        #trainer.fit(model, data)
+        trainer.test(model, data.test_dataloader())
+
+        db = DatabaseHandler()
+        db.update_embeddings()
 
     def ctl_trainer(self):
         args = utils.config_parse('CONTRACTIVE_LOSS_FR')
         args['num_classes'] = len(os.listdir(self.root_dir)) 
         model = ContractiveLossFR(**args, pretrained=True)
-        data = ContractiveLossFREmbeddingsDataModule(self.embeddings, batch_size=self.batch_size)
-        data.prepare_data()
+        data = ContractiveLossFREmbeddingsDataModule(self.embeddings, batch_size=2)
+        data.setup()
         trainer = pl.Trainer(
-        accelerator='gpu', devices=1,
-        min_epochs=10,
-        max_epochs=25,
+            accelerator='gpu', devices=1,
+            min_epochs=10,
+            max_epochs=25,
         )
         trainer.fit(model, data)
-        trainer.save_checkpoint(utils.ROOT_PATH + '/weights/contractive_loss.cpkt')
-
+        
 
 if __name__ == '__main__':
+    '''
     face_recognizer = Predictor(file=True, label=True)
     prediction = face_recognizer.predict('../test/navin.jpg')
     print(prediction)
-
     '''
     face_trainer = Trainer(root_dir=utils.ROOT_PATH+ "/database/faces",
                         label_map=utils.ROOT_PATH+'/database/label_map.json',
-                        embeddings=utils.ROOT_PATH+'/database/embeddings.csv',
-                        batch_size=2)
+                        embeddings=utils.ROOT_PATH+'/database/embeddings.csv')
     face_trainer.train()
-    '''
+    

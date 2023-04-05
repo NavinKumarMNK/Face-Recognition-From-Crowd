@@ -2,9 +2,9 @@
 import torch
 import torch.nn as nn
 import sys
-if '../../' not in sys.path:
-    sys.path.append('../../')
-from FaceNet import FaceNet
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
+from scripts.FaceNet import FaceNet
 import os
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -18,13 +18,13 @@ import pandas as pd
 import uuid
 from utils import utils
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+import subprocess
 class DatabaseHandler():
-    def __init__(self, database=utils.ROOT_PATH+'/database', weights='/weights/face_embeddings.pt') -> None:
+    def __init__(self, database=utils.ROOT_PATH+'/database', weights='/weights/ssl_facenet_weights.pt') -> None:
         self.database = database
         self.weights = weights
         self.model = FaceNet(model='resnet101', pretrained=False, im_size=64)
-        self.model.load_state_dict(torch.load(utils.ROOT_PATH + self.weights))
+        self.model = torch.load(utils.ROOT_PATH + self.weights)
         self.model.to(DEVICE)
         self.transform = transforms.Compose([
             Resize((64, 64)),
@@ -33,7 +33,7 @@ class DatabaseHandler():
             ])
 
     def add_label_folder(self):
-        self.folders_created = []
+        DatabaseHandler.folders_created = []
         class FolderHandler(FileSystemEventHandler):
             def __init__(self, str) -> None:
                 self.str = str
@@ -52,7 +52,7 @@ class DatabaseHandler():
                     self.previous_folders = current_folders
         
         observer = Observer()
-        observer.schedule(FolderHandler('./faces'), path='./faces', recursive=True)
+        observer.schedule(FolderHandler(self.database+'/faces'), path=self.database+'/faces', recursive=True)
         observer.start()
 
         input("Add label-folders to database/faces . Press Enter once your are done")
@@ -60,44 +60,44 @@ class DatabaseHandler():
         observer.stop()
         observer.join()
 
-        self._face2database()
+        self.face2database()
 
-    def add_label_camera(self):
-        self.folders_created = []
-        while True:
-            label = input("Enter Your Label = ")
-            if label == "exit":
-                break
-            #capture the face through cv2 and add create a folder and add the image to the folder
-            folder_path = os.path.join("faces", label)
-            if not os.path.exists(folder_path):
-                os.mkdir(folder_path)
-            else:
-                print("User already exists. Create New User")
-                continue
-            
-            cap = cv2.VideoCapture(0)
-            while True:
-                ret, frame = cap.read()
-                #yolov7 to detect face
+    def update_embeddings(self):
+        update_folders = []
+        with open(self.database+"/label_map.json", "r") as f:
+            label_map = json.load(f)
+        for label in label_map:
+            label_id = label_map[label]
+            update_folders.append(self.database+'/faces/'+label)
 
-                a = input("Press Enter to capture q to quit")
-                if a == "q":
-                    break
-                
-                #save the image to the folder
-                image_name = str(uuid.uuid4()) + ".jpg"
-                image_path = os.path.join(folder_path, image_name)
-                cv2.imwrite(image_path, frame)
+        embeddings = []
+        label_id = 0
+        for folder in update_folders:
+            print("Adding {} to database".format(folder))
+            images = os.listdir(folder)
+            for image in images:
+                # change image name to uuid name and save it
+                image_path = os.path.join(folder, image)
+                image = Image.open(image_path)
+                image = self.transform(image).unsqueeze(0)
+                print(image.shape)
+                image = image.to(DEVICE)
+                self.model.eval()
+                embedding = self.model(image)
+                embedding = embedding.detach().cpu().numpy()
+                embedding = embedding.reshape(512)
+                embedding = embedding.tolist()
+                embeddings.append([label_id] + embedding)
+            label_id+=1
 
-            cap.release()
-            cv2.destroyAllWindows()
-            self.folders_created.append(folder_path)
-        
-        self._face2database()
-    
-    def _face2database(self):
-        with open("label_map.json", "r") as f:
+
+        columns = ["label"] + ["embedding_"+str(i) for i in range(512)]
+        df = pd.DataFrame(embeddings, columns=columns)
+        df.to_csv(self.database+"/embeddings.csv", index=False)    
+
+
+    def face2database(self):
+        with open(self.database+"/label_map.json", "r") as f:
             label_map = json.load(f)
             label_id = len(label_map)
             for folder in self.folders_created:
@@ -105,7 +105,7 @@ class DatabaseHandler():
                 if label not in label_map:
                     label_map[label] = len(label_map)
 
-        with open("label_map.json", "w") as f:
+        with open(self.database+"/label_map.json", "w") as f:
             json.dump(label_map, f)
 
         embeddings = []
@@ -113,30 +113,36 @@ class DatabaseHandler():
             print("Adding {} to database".format(folder))
             images = os.listdir(folder)
             for image in images:
+                # change image name to uuid name and save it
+                image_temp = str(uuid.uuid4()) + ".jpg"
+                os.rename(os.path.join(folder, image), os.path.join(folder, image_temp))
+                image = image_temp
                 image_path = os.path.join(folder, image)
+                command = "python3 run.py --source " + image_path + " --crop-face"
+                process = subprocess.Popen(command, shell=True)
+                process.wait()
                 image = Image.open(image_path)
                 image = self.transform(image).unsqueeze(0)
                 print(image.shape)
+                image = image.to(DEVICE)
                 self.model.eval()
                 embedding = self.model(image)
                 embedding = embedding.detach().cpu().numpy()
                 embedding = embedding.reshape(512)
                 embedding = embedding.tolist()
                 embeddings.append([label_id] + embedding)
+            label_id+=1
 
-        if os.path.exists("embeddings.csv"):
-            df = pd.read_csv("embeddings.csv")
-            df = df.concat([df, pd.DataFrame(embeddings, columns=df.columns)])
-            df.to_csv("embeddings.csv", index=False)
-        else:
+        if os.path.exists(self.database+"/embeddings.csv"):
+            df = pd.read_csv(self.database+"/embeddings.csv")
+            df = pd.concat([df, pd.DataFrame(embeddings, columns=df.columns)])
+            df.to_csv(self.database+"/embeddings.csv", index=False)
+        else :
             columns = ["label"] + ["embedding_"+str(i) for i in range(512)]
             df = pd.DataFrame(embeddings, columns=columns)
-            df.to_csv("embeddings.csv", index=False)
-
-    def yolo_face(self):
-        pass
+            df.to_csv(self.database+"/embeddings.csv", index=False)    
 
 if __name__ == "__main__":
     db = DatabaseHandler()
     db.add_label_folder()
-    db.add_label_camera()
+    #db.update_embeddings()

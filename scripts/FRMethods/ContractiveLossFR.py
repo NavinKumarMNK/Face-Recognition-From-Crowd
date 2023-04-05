@@ -1,19 +1,17 @@
 '@Author: NavinKumarMNK' 
-import sys 
-if '../' not in sys.path:
-    sys.path.append('../../')
-    
-from utils import utils
+import sys
 import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
+
+from utils import utils
+import numpy as np
 import pandas as pd
-import torch
-import torch.nn as nn
 import pytorch_lightning as pl
 import torch.nn.functional as F
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset, random_split
 from sklearn.model_selection import train_test_split
 from pytorch_lightning import LightningModule
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -26,20 +24,36 @@ class ContractiveLossFR(LightningModule):
         self.num_classes = num_classes
         self.margin = float(margin)
         self.easy_margin = easy_margin
-        self.embedding = nn.Linear(self.embedding_size, 
-                                self.num_classes).double().to("cuda")
-        
+        self.embedding = nn.Sequential(
+                nn.Linear(self.embedding_size, 
+                                self.embedding_size // 2),
+                nn.BatchNorm1d(self.embedding_size // 2),
+                nn.GELU(),
+                nn.Linear(self.embedding_size // 2, 
+                                    self.embedding_size // 4),
+                nn.BatchNorm1d(self.embedding_size // 4),
+                nn.GELU(),
+                nn.Linear(self.embedding_size // 4, 
+                        self.embedding_size // 8),
+                nn.BatchNorm1d(self.embedding_size // 8),
+                nn.GELU(),
+                nn.Linear(self.embedding_size // 8, 
+                        self.num_classes)
+            )
         try:
             if(pretrained == True):
                 path = utils.ROOT_PATH + '/weights/contractive_loss_weights.pt'
-                self.load_state_dict(torch.load(path))        
+                self.embedding = torch.load(path)      
         except Exception as e:
-            print(path)
-            print(e)
-            
-    def forward(self, embeddings:torch.DoubleTensor):
-        embeddings = embeddings.double()
-        logits = self.embedding(embeddings.to("cuda"))
+            torch.save(self.embedding, path)
+        self.embedding.to(DEVICE)
+
+    def forward(self, embeddings):
+       
+        dtype = next(self.embedding.parameters()).dtype
+        print(dtype)
+    
+        logits = self.embedding(embeddings)
         return logits
 
     def contrastive_loss(self, logits, labels):
@@ -61,7 +75,7 @@ class ContractiveLossFR(LightningModule):
         return {"loss": loss}
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=0.001)
+        optimizer = optim.Adam(self.parameters(), lr=0.0001)
         return optimizer
 
     def validation_step(self, batch, batch_idx):
@@ -70,6 +84,13 @@ class ContractiveLossFR(LightningModule):
         loss = self.contrastive_loss(logits, labels)
         self.log("val_loss", loss)
         return {"val_loss": loss}
+
+    def test_step(self, batch, batch_idx):
+        embeddings, labels = batch
+        logits = self.forward(embeddings)
+        loss = self.contrastive_loss(logits, labels)
+        self.log("test_loss", loss)
+        return {"test_loss": loss}
 
     def prediction_step(self, batch):
         embeddings = batch
@@ -82,17 +103,30 @@ class ContractiveLossFR(LightningModule):
         self.log('val_loss', avg_loss)
 
     def on_train_end(self) -> None:
-        torch.save(self.state_dict(), utils.ROOT_PATH + '/weights/contractive_loss_weights.pt')
+        torch.save(self.embedding, utils.ROOT_PATH + '/weights/contractive_loss_weights.pt')
 
-class ContractiveLossFREmbeddingsDataset(torch.utils.data.Dataset):
-    def __init__(self, embeddings, labels):
-        self.embeddings = embeddings
-        self.labels = labels
+class ContractiveLossFREmbeddingsDataset(Dataset):
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self._make_dataset()
 
+    def _make_dataset(self):
+        df = pd.read_csv(self.file_path)
+        self.labels = df.iloc[:, 0].values
+        self.embeddings = df.iloc[:, 1:].values
+        # convert to float tensor
+        self.labels = self.labels.astype(np.float32)
+        self.embeddings = self.embeddings.astype(np.float32)
+
+        # from numpy array
+        self.labels = torch.from_numpy(self.labels)
+        self.embeddings = torch.from_numpy(self.embeddings)
+        
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, idx):
+
         return self.embeddings[idx], self.labels[idx]
 
 class ContractiveLossFREmbeddingsDataModule(pl.LightningDataModule):
@@ -101,22 +135,25 @@ class ContractiveLossFREmbeddingsDataModule(pl.LightningDataModule):
         self.file_path = file_path
         self.batch_size = batch_size
 
-    def prepare_data(self):
-        df = pd.read_csv(self.file_path)
-        self.labels = df.iloc[:, 0].values
-        self.embeddings = df.iloc[:, 1:].values
-        # convert to numpy array
-        self.labels =   torch.Tensor(self.labels).long()
-        self.embeddings = torch.tensor(self.embeddings)
-        self.train_embeddings, self.val_embeddings, self.train_labels, self.val_labels = train_test_split(self.embeddings, self.labels, test_size=0.2, random_state=42)
-    
+    def setup(self, stage=None):
+        self.dataset = ContractiveLossFREmbeddingsDataset(self.file_path)
+        # split dataset
+        self.train_dataset, self.val_dataset, self.test_dataset = random_split(self.dataset, 
+                                [int(len(self.dataset)*0.8), int(len(self.dataset)*0.1), 
+                                int(len(self.dataset)) - int(len(self.dataset)*0.8) - int(len(self.dataset)*0.1)])        
+
     def train_dataloader(self):
-        train_dataset = ContractiveLossFREmbeddingsDataset(self.train_embeddings, self.train_labels)
-        return DataLoader(train_dataset, batch_size=self.batch_size, num_workers=4, shuffle=True)
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, 
+                          shuffle=True, num_workers=6, drop_last=True)
 
     def val_dataloader(self):
-        val_dataset = ContractiveLossFREmbeddingsDataset(self.val_embeddings, self.val_labels)
-        return DataLoader(val_dataset, batch_size=self.batch_size, num_workers=4) 
+        return DataLoader(self.val_dataset, batch_size=self.batch_size, 
+                          shuffle=False, num_workers=6, drop_last=True)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_dataset, batch_size=self.batch_size,
+                           shuffle=False, num_workers=6, drop_last=True)
+
     
 if __name__ == "__main__":
     args = utils.config_parse('CONTRACTIVE_LOSS_FR')
