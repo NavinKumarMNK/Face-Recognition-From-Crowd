@@ -28,7 +28,7 @@ def config_parse(txt):
     params={}
     try:
         for key, value in config[txt].items():
-            if 'path' in key:
+            if 'path' in key: 
                 params[key] = absolute_path(value)
             else:
                 params[key] = value

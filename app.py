@@ -14,7 +14,7 @@ from threading import Thread
 app = Flask(__name__, template_folder='./templates')
 
 
-@app.route('/video-feed')
+@app.route('/')
 def video_feed():
     video = Process(os.path.abspath('./temp'), 
                     './weights/yolov7-tinyface.pt', 'live')
@@ -41,12 +41,4 @@ if __name__ == '__main__':
     elif wlo1_ip:
         ip = wlo1_ip
     port=5005
-    '''
-    browser = webbrowser.get()
-    url=f'http://{ip}:{port}/'
-    if browser is None:
-        webbrowser.open(url)
-    else:
-        browser.open(url, new=0)
-    '''
-    app.run(host='0.0.0.0', debug=True, port=port )
+    app.run(host='0.0.0.0', debug=True, port=port)

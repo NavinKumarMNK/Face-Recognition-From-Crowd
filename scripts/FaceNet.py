@@ -1,7 +1,8 @@
 '@Author: NavinKumarMNK'
 import sys 
-if '../../' not in sys.path:
-    sys.path.append('../../')
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+
     
 from utils import utils
 import os

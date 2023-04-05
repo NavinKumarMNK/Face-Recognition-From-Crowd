@@ -28,8 +28,8 @@ class Main():
             cv2.destroyAllWindows()
 
         elif (utils.path2src(self.args.path) == "image") :
-            for frame in Process(os.path.abspath('./temp'), 
-                    './weights/yolov7-tinyface.pt', self.args.path).start_capture():
+            for frame in Process(os.path.abspath(self.args.path), 
+                './weights/yolov7-tinyface.pt', self.args.path, crop_faces=True if self.args.crop_face else False).start_capture():
                 cv2.imwrite(self.args.path, frame)
         print("Finished !!")
 
@@ -43,6 +43,12 @@ class Main():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Face Recognition")
     parser.add_argument('--source', type=str,
-                        default="video", help="live || video/image path")
+                        default="live", help="live || video/image path")
+    # crop faces flag with no argument
+    parser.add_argument('--crop-face', action='store_true', help="crop faces")
     args = parser.parse_args()
-    Main(args).run()
+    try:
+        Main(args).run()
+    except KeyboardInterrupt:
+        print("Interrupted by user")
+        sys.exit(0)

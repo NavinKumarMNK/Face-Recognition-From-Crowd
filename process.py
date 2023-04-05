@@ -43,10 +43,11 @@ def face_recognition(input_queue, output_queue):
 class Process():
     def __init__(self, temp_dir, weigths, source, 
                     device = "cuda" if torch.cuda.is_available() else "cpu",
-                    recognize=True) -> None:
+                    recognize=True, crop_faces=False) -> None:
         self.temp_dir = temp_dir
         self.capture = None
         self.weights = weigths
+        self.crop_faces = crop_faces
         self.path = source
         self.source = utils.path2src(source)
         self.device = device
@@ -175,17 +176,15 @@ class Process():
                     if len(tracked_dets) > 0:
                         widths = tracked_dets[:, 2] - tracked_dets[:, 0]
                         heights = tracked_dets[:, 3] - tracked_dets[:, 1]
-                        mask = np.logical_and(widths >= 32, heights >= 32)
+                        mask = np.logical_and(widths >= 28, heights >= 28)
                         tracked_dets = tracked_dets[mask]
 
                         bbox_xyxy = tracked_dets[:, :4]
                         identities = tracked_dets[:, 8]
-                        categories = tracked_dets[:, 4]
-                        confidences = dets_to_sort[:, 4]
                         print(temp_identities)
                         print(identities)
                         if (utils.lists_equal(temp_identities, identities) != True):
-                            print("hello")
+                            
                             new_faces = utils.get_new_faces(identities, temp_identities)
                             print(new_faces)
                             faces_name = []
@@ -199,16 +198,15 @@ class Process():
                                 face = im0[y1:y2, x1:x2]
                                 faces_img.append(face)
                                 if self.recognize == True:
-                                    print("asdfsdf")
+                                    
                                     self.input_queue.put(face)
                                     name = self.output_queue.get()
                                 else:
                                     name = "output"
                                 try:
-                                    faces_name.append(name)
                                     uuid_text = str(uuid.uuid4())
-                                    
                                     cv2.imwrite(os.path.join(self.temp_dir, f"{name}_{uuid_text}.jpg"), face)
+                                    faces_name.append(name)
                                 except cv2.error as e:
                                     print(e)
                             temp_identities = identities
@@ -219,7 +217,7 @@ class Process():
 
                     im0 = self.draw_boxes(
                         im0, bbox_xyxy, identities=identities,  
-                            
+                            crop_faces=self.crop_faces,    
                             color=5 , faces=faces_name
                     )
 
@@ -235,7 +233,8 @@ class Process():
                 yield im0
 
     def draw_boxes(self, img, bbox, identities=None, 
-                     color=None, faces=None):
+                     color=None, faces=None, crop_faces=False):
+        print(len(bbox))
         for i, box in enumerate(bbox):
             x1, y1, x2, y2 = [int(i) for i in box]
             face = img[y1:y2, x1:x2]
@@ -244,13 +243,16 @@ class Process():
 
             id = int(identities[i]) if identities is not None else 0
             try:
-                face = str(faces[i]) if faces is not None else "output"
+                face = str(faces[i]) if faces is not None else "output23423"
             except Exception as e:
                 face = ' '
                 print(e)
 
             color = 1
-            cv2.rectangle(img, (x1, y1), (x2, y2), color, tl)
+            # draw rectangle padding 10 px +- the gap to view the face clearly on all sides
+            if (self.crop_faces == False):
+                cv2.rectangle(img, (x1-5, y1-5), (x2+5, y2+5), color, tl)
+            
             label = (
                 str(id) + " " + face 
                 if identities is not None 
@@ -261,18 +263,23 @@ class Process():
             t_size = cv2.getTextSize(
                 label, 0, fontScale=tl / 3, thickness=tf)[0]
             c2 = x1 + t_size[0], y1 - t_size[1] - 3
-            cv2.rectangle(img, (x1, y1), c2, color, -
-                          1, cv2.LINE_AA)
-            cv2.putText(
-                img,
-                label,
-                (x1, y1 - 2),
-                0,
-                tl / 3,
-                [225, 255, 255],
-                thickness=tf,
-                lineType=cv2.LINE_AA
-            )
+            if (self.crop_faces == False):
+                cv2.rectangle(img, (x1, y1), c2, color, -
+                            1, cv2.LINE_AA)
+                cv2.putText(
+                    img,
+                    label,
+                    (x1, y1 - 2),
+                    0,
+                    tl / 3,
+                    [225, 255, 255],
+                    thickness=tf,
+                    lineType=cv2.LINE_AA
+                )
+        
+        if (self.crop_faces == True):
+            # crop img, (x1, y1), (x2, y2) leave padding of 5px
+            img = img[y1-5:y2+5, x1-5:x2+5]
         return img
     
     def start_capture(self):

@@ -1,7 +1,8 @@
 '@Author: NavinKumarMNK'
 import sys, os
-if '../../' not in sys.path:
-    sys.path.append('../../')
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+
 import cv2
 import numpy as np
 from utils import utils

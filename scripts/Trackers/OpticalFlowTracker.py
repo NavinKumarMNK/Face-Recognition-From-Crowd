@@ -110,7 +110,7 @@ if __name__ == '__main__':
     cap = cv2.VideoCapture('../../test/street.mp4')
     
     while(cap.isOpened()):
-        print("hello")
+        
         ret, frame = cap.read()
         if ret == True:
             # bbox = [x, y, w, h] random for now
